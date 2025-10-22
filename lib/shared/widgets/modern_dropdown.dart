@@ -53,7 +53,7 @@ class ModernDropdown extends StatelessWidget {
             border: Border.all(color: Colors.grey[300]!, width: 1),
           ),
           child: DropdownButtonFormField<String>(
-            value: value,
+            initialValue: value,
             hint: Text(
               hint ?? 'Select $label',
               style: TextStyle(

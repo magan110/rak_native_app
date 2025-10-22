@@ -44,7 +44,6 @@ class AppTheme {
       secondary: secondaryColor,
       error: errorColor,
       surface: surfaceColor,
-      background: backgroundColor,
     ),
     appBarTheme: const AppBarTheme(
       elevation: 0,
@@ -120,7 +119,6 @@ class AppTheme {
       secondary: secondaryColor,
       error: errorColor,
       surface: Color(0xFF1F2937),
-      background: Color(0xFF111827),
     ),
     appBarTheme: const AppBarTheme(
       elevation: 0,

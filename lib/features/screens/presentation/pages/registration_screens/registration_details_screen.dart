@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../../core/theme/theme.dart';
-import '../../../../../core/widgets/custom_back_button.dart';
 import '../../../../../core/services/approval_service.dart';
 import '../../../../../core/models/approval_models.dart';
 
@@ -171,10 +171,10 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
             color: AppTheme.primaryColor,
             strokeWidth: 3,
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 16.h),
           Text(
             'Loading registration details...',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 16.sp),
           ),
         ],
       ),
@@ -195,15 +195,13 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
           children: [
             // Simple AppBar
             Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: EdgeInsets.all(16.w),
               child: Row(
                 children: [
-                  const CustomBackButton(animated: false, size: 36),
-                  const SizedBox(width: 12),
                   Text(
                     'Error',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: 20.sp,
                       fontWeight: FontWeight.w600,
                       color: Colors.red.shade700,
                     ),
@@ -214,43 +212,43 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
             Expanded(
               child: Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(32.0),
+                  padding: EdgeInsets.all(32.w),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(24),
+                        padding: EdgeInsets.all(24.w),
                         decoration: BoxDecoration(
                           color: Colors.red.shade50,
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.error_outline_rounded,
-                          size: 64,
+                          size: 64.sp,
                           color: Colors.red.shade400,
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      SizedBox(height: 24.h),
                       Text(
                         'Oops! Something went wrong',
                         style: TextStyle(
-                          fontSize: 22,
+                          fontSize: 22.sp,
                           fontWeight: FontWeight.bold,
                           color: Colors.red.shade700,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Text(
                         _errorMessage!,
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 16.sp,
                           color: Colors.red.shade600,
                           height: 1.5,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 32),
+                      SizedBox(height: 32.h),
                       ElevatedButton.icon(
                         onPressed: _loadRegistrationDetails,
                         icon: const Icon(Icons.refresh_rounded),
@@ -258,12 +256,12 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red.shade600,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 16,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 32.w,
+                            vertical: 16.h,
                           ),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(12.r),
                           ),
                         ),
                       ),
@@ -283,18 +281,18 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.inbox_rounded, size: 80, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
+          Icon(Icons.inbox_rounded, size: 80.sp, color: Colors.grey.shade400),
+          SizedBox(height: 16.h),
           Text(
             'No registration data available',
-            style: TextStyle(fontSize: 18, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 18.sp, color: Colors.grey.shade600),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8.h),
           Text(
             'ID: ${widget.registrationId ?? 'Not provided'}',
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+            style: TextStyle(fontSize: 14.sp, color: Colors.grey.shade500),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24.h),
           ElevatedButton(
             onPressed: _loadRegistrationDetails,
             child: const Text('Retry Load'),
@@ -340,7 +338,6 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
       backgroundColor: Colors.white,
       leading: Padding(
         padding: const EdgeInsets.all(8.0),
-        child: const CustomBackButton(animated: false, size: 36),
       ),
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.only(left: 56, bottom: 16),

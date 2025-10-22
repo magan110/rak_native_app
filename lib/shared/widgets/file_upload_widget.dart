@@ -692,10 +692,10 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
                   // SAFE DIMENSION GUARD to prevent 1x1/0x0 allocations
                   final pw = pageSnapshot.data!.width;
                   final ph = pageSnapshot.data!.height;
-                  final double safeW = (pw != null && pw > 10)
+                  final double safeW = (pw > 10)
                       ? pw.toDouble() * 2.0
                       : 800.0;
-                  final double safeH = (ph != null && ph > 10)
+                  final double safeH = (ph > 10)
                       ? ph.toDouble() * 2.0
                       : 1200.0;
 

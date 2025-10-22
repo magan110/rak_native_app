@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/services/auth_service.dart';
+import 'package:rak_app/core/models/auth_models.dart';
 import 'package:rak_app/core/services/storage_service.dart';
 import 'package:rak_app/shared/widgets/custom_back_button.dart';
 
@@ -96,6 +98,29 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
       final userID = _userIdController.text.trim();
       final password = _passwordController.text.trim();
 
+  // Shortcut: local dummy admin login (no network)
+  if (userID == 'admin' && password == 'admin07') {
+        // Create minimal UserData and set as current user
+        final dummyUser = UserData(
+          emplName: 'Administrator',
+          areaCode: 'ADM',
+          roles: ['ADMIN'],
+          pages: ['DASHBOARD'],
+          userID: 'admin',
+          appRegId: null,
+        );
+
+        AuthManager.setUser(dummyUser);
+
+        if (mounted) {
+          setState(() => _isLoading = false);
+          // Navigate to the app home screen
+          context.go('/home');
+        }
+
+        return;
+      }
+
       final result = await AuthService.authenticateUser(
         userID: userID,
         password: password,
@@ -118,7 +143,8 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
           }
 
           AuthManager.setUser(userData);
-          _navigateBasedOnRole(userData);
+          // After successful auth, go to the home screen
+          context.go('/home');
         } else {
           final errorMessage =
               result['error'] ?? 'Login failed. Please try again.';
@@ -137,25 +163,7 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
     }
   }
 
-  void _navigateBasedOnRole(userData) {
-    final userPages = userData.pages as List<String>;
-    final userRoles = userData.roles as List<String>;
-
-    if (userPages.contains('DASHBOARD') || userRoles.contains('ADMIN')) {
-      context.go('/dashboard');
-    } else if (userPages.contains('QUALITY_CONTROL') ||
-        userRoles.contains('QC_MANAGER')) {
-      context.go('/approval-dashboard');
-    } else if (userPages.contains('PRODUCTS') ||
-        userRoles.contains('PRODUCT_MANAGER')) {
-      context.go('/new-product-entry');
-    } else if (userPages.contains('REGISTRATION') ||
-        userRoles.contains('REGISTRAR')) {
-      context.go('/registration-type');
-    } else {
-      context.go('/home');
-    }
-  }
+  // Navigation is simplified: post-login we now redirect to '/home'.
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -163,8 +171,8 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
         content: Text(message),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        margin: EdgeInsets.all(16.w),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
       ),
     );
   }

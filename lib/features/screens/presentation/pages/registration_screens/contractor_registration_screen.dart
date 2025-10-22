@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../../shared/widgets/custom_back_button.dart';
 import '../../../../../shared/widgets/modern_dropdown.dart';
 import '../../../../../shared/widgets/file_upload_widget.dart';
@@ -139,7 +140,7 @@ class _ContractorRegistrationScreenState
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 200,
+            expandedHeight: 200.h,
             floating: false,
             pinned: true,
             elevation: 0,
@@ -151,30 +152,31 @@ class _ContractorRegistrationScreenState
             ),
             leading: Navigator.of(context).canPop()
                 ? Padding(
-                    padding: const EdgeInsets.all(8.0),
+                    padding: EdgeInsets.all(8.w),
                     child: CustomBackButton(
                       animated: false,
-                      size: 36,
+                      size: 36.sp,
                       color: Colors.white,
                     ),
                   )
                 : null,
             flexibleSpace: FlexibleSpaceBar(
-              title: const Text(
+              title: Text(
                 'Contractor Registration',
                 style: TextStyle(
+                  fontSize: 16.sp,
                   fontWeight: FontWeight.w600,
                   color: Colors.white,
                   shadows: [
                     Shadow(
-                      offset: Offset(0, 2),
+                      offset: Offset(0, 2.h),
                       blurRadius: 4.0,
                       color: Color(0x40000000),
                     ),
                   ],
                 ),
               ),
-              titlePadding: const EdgeInsets.only(left: 72, bottom: 16),
+              titlePadding: EdgeInsets.only(left: 72.w, bottom: 16.h),
               background: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -188,11 +190,11 @@ class _ContractorRegistrationScreenState
                     ),
                   ),
                   Positioned(
-                    right: -50,
-                    top: -50,
+                    right: -50.w,
+                    top: -50.h,
                     child: Container(
-                      width: 200,
-                      height: 200,
+                      width: 200.w,
+                      height: 200.h,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.white.withOpacity(0.1),
@@ -200,11 +202,11 @@ class _ContractorRegistrationScreenState
                     ),
                   ),
                   Positioned(
-                    right: 20,
-                    top: 60,
+                    right: 20.w,
+                    top: 60.h,
                     child: Icon(
                       Icons.business_center,
-                      size: 100,
+                      size: 100.sp,
                       color: Colors.white.withOpacity(0.2),
                     ),
                   ),
@@ -227,18 +229,18 @@ class _ContractorRegistrationScreenState
               child: SlideTransition(
                 position: _slideAnimation,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 16.w,
+                    vertical: 16.h,
                   ),
                   child: ScaleTransition(
                     scale: _scaleAnimation,
                     child: Column(
                       children: [
                         _buildProgressIndicator(),
-                        const SizedBox(height: 24),
+                        SizedBox(height: 24.h),
                         _buildDesktopLayout(),
-                        const SizedBox(height: 24),
+                        SizedBox(height: 24.h),
                       ],
                     ),
                   ),
@@ -253,10 +255,10 @@ class _ContractorRegistrationScreenState
 
   Widget _buildProgressIndicator() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12.r),
         border: Border.all(color: Colors.grey.shade200, width: 1),
       ),
       child: Column(
@@ -270,12 +272,12 @@ class _ContractorRegistrationScreenState
               _buildProgressStep(3, 'Bank', _currentStep >= 3),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12.h),
           Text(
             'Step $_currentStep of 3: ${_getStepTitle()}',
             style: TextStyle(
               color: Colors.grey.shade600,
-              fontSize: 14,
+              fontSize: 14.sp,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -301,8 +303,8 @@ class _ContractorRegistrationScreenState
     return Column(
       children: [
         Container(
-          width: 40,
-          height: 40,
+          width: 40.w,
+          height: 40.h,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: isActive ? const Color(0xFF1E3A8A) : Colors.grey.shade300,
@@ -310,8 +312,8 @@ class _ContractorRegistrationScreenState
                 ? [
                     BoxShadow(
                       color: const Color(0xFF1E3A8A).withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                      blurRadius: 8.r,
+                      offset: Offset(0, 2.h),
                     ),
                   ]
                 : null,
@@ -326,12 +328,12 @@ class _ContractorRegistrationScreenState
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
         Text(
           title,
           style: TextStyle(
             color: isActive ? const Color(0xFF1E3A8A) : Colors.grey.shade600,
-            fontSize: 12,
+            fontSize: 12.sp,
             fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
@@ -342,11 +344,11 @@ class _ContractorRegistrationScreenState
   Widget _buildProgressLine(bool isActive) {
     return Expanded(
       child: Container(
-        height: 2,
-        margin: const EdgeInsets.symmetric(horizontal: 8),
+        height: 2.h,
+        margin: EdgeInsets.symmetric(horizontal: 8.w),
         decoration: BoxDecoration(
           color: isActive ? const Color(0xFF1E3A8A) : Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(1),
+          borderRadius: BorderRadius.circular(1.r),
         ),
       ),
     );

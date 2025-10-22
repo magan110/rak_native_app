@@ -4,6 +4,7 @@ import 'package:rak_app/core/services/storage_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../../../../../core/services/auth_service.dart';
+import 'package:rak_app/core/models/auth_models.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -96,28 +97,31 @@ class _SplashScreenState extends State<SplashScreen>
         final autoLoginResult = await AuthService.autoLogin();
 
         if (autoLoginResult['success'] == true) {
-          final userData = autoLoginResult['data'];
+          // AuthService.autoLogin returns a UserData instance in 'data'
+          final userData = autoLoginResult['data'] as UserData?;
 
-          // Set user data in AuthManager
-          AuthManager.setUser(userData);
+          if (userData != null) {
+            // Set user data in AuthManager
+            AuthManager.setUser(userData);
 
-          setState(() {
-            _loadingText = 'Welcome back!';
-          });
+            setState(() {
+              _loadingText = 'Welcome back!';
+            });
 
-          // Brief delay to show welcome message
-          await Future.delayed(const Duration(milliseconds: 500));
+            // Brief delay to show welcome message
+            await Future.delayed(const Duration(milliseconds: 500));
 
-          // Ensure minimum splash time has passed
-          final elapsed = DateTime.now().difference(startTime);
-          if (elapsed < minSplashDuration) {
-            await Future.delayed(minSplashDuration - elapsed);
+            // Ensure minimum splash time has passed
+            final elapsed = DateTime.now().difference(startTime);
+            if (elapsed < minSplashDuration) {
+              await Future.delayed(minSplashDuration - elapsed);
+            }
+
+            if (mounted) {
+              _navigateBasedOnRole(userData);
+            }
+            return;
           }
-
-          if (mounted) {
-            _navigateBasedOnRole(userData);
-          }
-          return;
         } else {
           // Auto-login failed, clear stored data and continue to login
           await StorageService.clearAppRegId();
@@ -135,7 +139,7 @@ class _SplashScreenState extends State<SplashScreen>
 
       // Navigate to login screen
       if (mounted) {
-        context.go('/login');
+        context.go('/login-with-password');
       }
     } catch (e) {
       // Handle any errors during auto-login
@@ -153,27 +157,31 @@ class _SplashScreenState extends State<SplashScreen>
 
       // Navigate to login screen on error
       if (mounted) {
-        context.go('/login');
+        context.go('/login-with-password');
       }
     }
   }
 
-  void _navigateBasedOnRole(userData) {
-    // Check user's pages to determine which screen to navigate to
-    final userPages = userData['pages'] as List<dynamic>;
-    final userRoles = userData['roles'] as List<dynamic>;
+  void _navigateBasedOnRole(UserData? userData) {
+    // Prefer the provided userData, fall back to AuthManager
+    final user = userData ?? AuthManager.currentUser;
+    if (user == null) {
+      context.go('/home');
+      return;
+    }
+
+    final userPages = user.pages;
+    final userRoles = user.roles;
 
     // Navigate to the appropriate screen based on user's access
     if (userPages.contains('DASHBOARD') || userRoles.contains('ADMIN')) {
-      context.go(
-        '/home',
-      ); // Changed from '/dashboard' to '/home' since that's in your routes
+      context.go('/home');
     } else if (userPages.contains('QUALITY_CONTROL') ||
         userRoles.contains('QC_MANAGER')) {
-      context.go('/home'); // Update with actual route when available
+      context.go('/home');
     } else if (userPages.contains('PRODUCTS') ||
         userRoles.contains('PRODUCT_MANAGER')) {
-      context.go('/home'); // Update with actual route when available
+      context.go('/home');
     } else if (userPages.contains('REGISTRATION') ||
         userRoles.contains('REGISTRAR')) {
       context.go('/contractor-registration');

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../../core/widgets/custom_back_button.dart';
+import 'package:rak_app/core/routes/route_names.dart';
 
 class RegistrationTypeScreen extends StatefulWidget {
   const RegistrationTypeScreen({super.key});
@@ -143,18 +144,15 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
 
   Widget _buildMobileAppBar(bool isSmallScreen) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 8.h),
       child: Row(
         children: [
-          if (Navigator.of(context).canPop())
-            CustomBackButton(animated: false, size: 36),
-          const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Registration Type',
               style: TextStyle(
                 fontWeight: FontWeight.w600,
-                fontSize: isSmallScreen ? 18 : 20,
+                fontSize: isSmallScreen ? 18.sp : 20.sp,
                 color: Colors.blue.shade800,
               ),
             ),
@@ -180,8 +178,8 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: EdgeInsets.symmetric(
-        horizontal: horizontalPadding,
-        vertical: 16,
+        horizontal: horizontalPadding.w,
+        vertical: 16.h,
       ),
       child: ScaleTransition(
         scale: _scaleAnimation,
@@ -189,9 +187,9 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildAnimatedHeader(isSmallScreen),
-            SizedBox(height: verticalSpacing),
+            SizedBox(height: verticalSpacing.h),
             _buildSubtitle(isSmallScreen),
-            SizedBox(height: verticalSpacing + 8),
+            SizedBox(height: (verticalSpacing + 8).h),
 
             // Registration Cards
             ScaleTransition(
@@ -205,7 +203,7 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
                 primaryColor: Colors.blue.shade600,
                 accentColor: Colors.blue.shade700,
                 lightColor: Colors.blue.shade400,
-                onTap: () => context.push('/contractor-registration'),
+                onTap: () => context.push(RouteNames.contractorRegistration),
                 isSmallScreen: isSmallScreen,
               ),
             ),
@@ -221,7 +219,7 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
                 primaryColor: Colors.blue.shade500,
                 accentColor: Colors.blue.shade600,
                 lightColor: Colors.blue.shade300,
-                onTap: () => context.push('/painter-registration'),
+                onTap: () => context.push(RouteNames.painterRegistration),
                 isSmallScreen: isSmallScreen,
               ),
             ),
@@ -430,60 +428,60 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
         child: Container(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24.w),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 64,
-                height: 64,
+                width: 64.w,
+                height: 64.h,
                 decoration: BoxDecoration(
                   color: Colors.blue.shade50,
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.help_outline_rounded,
-                  size: 32,
+                  size: 32.sp,
                   color: Colors.blue.shade700,
                 ),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               Text(
                 'Need Help?',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 20.sp,
                   fontWeight: FontWeight.bold,
                   color: Colors.black87,
                 ),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: 12.h),
               Text(
                 'If you\'re unsure which registration type to select, please contact our support team for assistance.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 14.sp,
                   color: Colors.grey.shade600,
                   height: 1.5,
                 ),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 24.h),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    padding: EdgeInsets.symmetric(vertical: 14.h),
                     backgroundColor: Colors.blue,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(12.r),
                     ),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Got it',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 16.sp,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),

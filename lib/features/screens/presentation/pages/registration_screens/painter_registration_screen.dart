@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:io';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import '../../../../../shared/widgets/custom_back_button.dart';
 import '../../../../../shared/widgets/file_upload_widget.dart';
 import '../../../../../shared/widgets/modern_dropdown.dart';
@@ -25,7 +28,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   // Current step state (1 = Personal, 2 = Emirates ID, 3 = Bank)
   int _currentStep = 1;
 
-  // Form controllers for auto-fill via OCR
+  // Form controllers
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _middleNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
@@ -46,6 +49,13 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   final TextEditingController _bankNameController = TextEditingController();
   final TextEditingController _branchNameController = TextEditingController();
   final TextEditingController _bankAddressController = TextEditingController();
+
+  // File paths for Emirates ID images
+  String? _emiratesIdFrontFile;
+  String? _emiratesIdBackFile;
+
+  // OCR processing flag
+  bool _isProcessingOcr = false;
 
   String? _selectedEmirate;
 
@@ -115,7 +125,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 200,
+            expandedHeight: 200.h,
             floating: false,
             pinned: true,
             elevation: 0,
@@ -127,30 +137,31 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
             ),
             leading: Navigator.of(context).canPop()
                 ? Padding(
-                    padding: const EdgeInsets.all(8.0),
+                    padding: EdgeInsets.all(8.w),
                     child: CustomBackButton(
                       animated: false,
-                      size: 36,
+                      size: 36.sp,
                       color: Colors.white,
                     ),
                   )
                 : null,
             flexibleSpace: FlexibleSpaceBar(
-              title: const Text(
+              title: Text(
                 'Painter Registration',
                 style: TextStyle(
+                  fontSize: 16.sp,
                   fontWeight: FontWeight.w600,
                   color: Colors.white,
                   shadows: [
                     Shadow(
-                      offset: Offset(0, 2),
+                      offset: Offset(0, 2.h),
                       blurRadius: 4.0,
                       color: Color(0x40000000),
                     ),
                   ],
                 ),
               ),
-              titlePadding: const EdgeInsets.only(left: 72, bottom: 16),
+              titlePadding: EdgeInsets.only(left: 72.w, bottom: 16.h),
               background: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -164,11 +175,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                     ),
                   ),
                   Positioned(
-                    right: -50,
-                    top: -50,
+                    right: -50.w,
+                    top: -50.h,
                     child: Container(
-                      width: 200,
-                      height: 200,
+                      width: 200.w,
+                      height: 200.h,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.white.withOpacity(0.1),
@@ -176,11 +187,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                     ),
                   ),
                   Positioned(
-                    right: 20,
-                    top: 60,
+                    right: 20.w,
+                    top: 60.h,
                     child: Icon(
                       Icons.format_paint,
-                      size: 100,
+                      size: 100.sp,
                       color: Colors.white.withOpacity(0.2),
                     ),
                   ),
@@ -203,18 +214,18 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               child: SlideTransition(
                 position: _slideAnimation,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 16.w,
+                    vertical: 16.h,
                   ),
                   child: ScaleTransition(
                     scale: _scaleAnimation,
                     child: Column(
                       children: [
                         _buildProgressIndicator(),
-                        const SizedBox(height: 24),
+                        SizedBox(height: 24.h),
                         _buildDesktopLayout(),
-                        const SizedBox(height: 24),
+                        SizedBox(height: 24.h),
                       ],
                     ),
                   ),
@@ -229,10 +240,10 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
 
   Widget _buildProgressIndicator() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16.w),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.7),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12.r),
         border: Border.all(color: Colors.grey.shade200, width: 1),
       ),
       child: Column(
@@ -246,12 +257,12 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               _buildProgressStep(3, 'Bank', _currentStep >= 3),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12.h),
           Text(
             'Step $_currentStep of 3: ${_getStepTitle()}',
             style: TextStyle(
               color: Colors.grey.shade600,
-              fontSize: 14,
+              fontSize: 14.sp,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -277,8 +288,8 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     return Column(
       children: [
         Container(
-          width: 40,
-          height: 40,
+          width: 40.w,
+          height: 40.h,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: isActive ? const Color(0xFF1E3A8A) : Colors.grey.shade300,
@@ -286,8 +297,8 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                 ? [
                     BoxShadow(
                       color: const Color(0xFF1E3A8A).withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                      blurRadius: 8.r,
+                      offset: Offset(0, 2.h),
                     ),
                   ]
                 : null,
@@ -302,12 +313,12 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: 8.h),
         Text(
           title,
           style: TextStyle(
             color: isActive ? const Color(0xFF1E3A8A) : Colors.grey.shade600,
-            fontSize: 12,
+            fontSize: 12.sp,
             fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
@@ -318,11 +329,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   Widget _buildProgressLine(bool isActive) {
     return Expanded(
       child: Container(
-        height: 2,
-        margin: const EdgeInsets.symmetric(horizontal: 8),
+        height: 2.h,
+        margin: EdgeInsets.symmetric(horizontal: 8.w),
         decoration: BoxDecoration(
           color: isActive ? const Color(0xFF1E3A8A) : Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(1),
+          borderRadius: BorderRadius.circular(1.r),
         ),
       ),
     );
@@ -349,7 +360,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     return Column(
       children: [
         currentSection,
-        const SizedBox(height: 24),
+        SizedBox(height: 24.h),
         _buildNavigationButtons(),
       ],
     );
@@ -371,20 +382,20 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFF1E3A8A),
                 side: const BorderSide(color: Color(0xFF1E3A8A), width: 2),
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: EdgeInsets.symmetric(vertical: 16.h),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(12.r),
                 ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Icon(Icons.arrow_back_rounded),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 8.w),
                   Text(
                     'Previous',
-                    style: const TextStyle(
-                      fontSize: 16,
+                    style: TextStyle(
+                      fontSize: 16.sp,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -393,7 +404,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
             ),
           ),
 
-        if (_currentStep > 1) const SizedBox(width: 16),
+        if (_currentStep > 1) SizedBox(width: 16.w),
 
         // Next/Submit button
         Expanded(
@@ -412,9 +423,9 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               backgroundColor: const Color(0xFF1E3A8A),
               foregroundColor: Colors.white,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: EdgeInsets.symmetric(vertical: 16.h),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(12.r),
               ),
             ),
             child: Row(
@@ -422,12 +433,12 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               children: [
                 Text(
                   _currentStep < 3 ? 'Next' : 'Submit Registration',
-                  style: const TextStyle(
-                    fontSize: 16,
+                  style: TextStyle(
+                    fontSize: 16.sp,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8.w),
                 Icon(
                   _currentStep < 3
                       ? Icons.arrow_forward_rounded
@@ -535,10 +546,10 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
 
   Widget _buildPhotoUploadSection() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(20.w),
       decoration: BoxDecoration(
         color: const Color(0xFFF0F9FF),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(12.r),
         border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.2)),
       ),
       child: Column(
@@ -549,20 +560,20 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               Icon(
                 Icons.camera_alt_outlined,
                 color: const Color(0xFF3B82F6),
-                size: 24,
+                size: 24.sp,
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12.w),
               Text(
                 'Profile Photo',
                 style: TextStyle(
-                  fontSize: 16,
+                  fontSize: 16.sp,
                   fontWeight: FontWeight.w600,
                   color: const Color(0xFF1E3A8A),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12.h),
           FileUploadWidget(
             label: '',
             icon: Icons.camera_alt_outlined,
@@ -571,10 +582,10 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               // Handle selected profile photo (e.g. store file or update state)
             },
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: 12.h),
           Text(
             'Upload a clear photo of yourself (JPG, PNG - Max 10MB)',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12.sp, color: Colors.grey.shade600),
           ),
         ],
       ),
@@ -588,6 +599,37 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
       subtitle: 'Upload both sides of your Emirates ID',
       children: [
         _buildIdUploadStatus(),
+        Padding(
+          padding: const EdgeInsets.only(top: 12.0),
+          child: Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: () async {
+                  if (_emiratesIdFrontFile != null && _emiratesIdBackFile != null) {
+                    await _processEmiratesIdOcrWithRetry();
+                  } else {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please upload both front and back images first')),
+                      );
+                    }
+                  }
+                },
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Re-scan ID'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1E3A8A),
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (_isProcessingOcr) ...[
+                const CircularProgressIndicator(),
+                const SizedBox(width: 12),
+                const Text('Processing ID images...'),
+              ],
+            ],
+          ),
+        ),
         const ResponsiveSpacing(mobile: 24),
         ResponsiveRow(
           children: [
@@ -595,11 +637,13 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               'Front Side',
               Icons.credit_card,
               'Upload the front of your Emirates ID',
+              isFront: true,
             ),
             _buildIdUploadCard(
               'Back Side',
               Icons.credit_card,
               'Upload the back of your Emirates ID',
+              isFront: false,
             ),
           ],
         ),
@@ -690,7 +734,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     );
   }
 
-  Widget _buildIdUploadCard(String title, IconData icon, String subtitle) {
+  Widget _buildIdUploadCard(String title, IconData icon, String subtitle, {required bool isFront}) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -732,10 +776,35 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
             label: '',
             icon: Icons.cloud_upload_outlined,
             allowedExtensions: const ['jpg', 'jpeg', 'png'],
-            onFileSelected: (file) {
-              // Handle selected ID image (e.g. store file, trigger OCR, update UI)
+            onFileSelected: (file) async {
+              // Store selected file path for later verification
+              if (file != null) {
+                setState(() {
+                  if (isFront) {
+                    _emiratesIdFrontFile = file;
+                  } else {
+                    _emiratesIdBackFile = file;
+                  }
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Image uploaded')),
+                );
+                // If both sides uploaded, run OCR to autofill fields
+                if (_emiratesIdFrontFile != null && _emiratesIdBackFile != null) {
+                  await _processEmiratesIdOcrWithRetry();
+                }
+              }
             },
           ),
+          SizedBox(height: 8.h),
+          if (isFront ? (_emiratesIdFrontFile != null) : (_emiratesIdBackFile != null))
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Uploaded',
+                style: TextStyle(color: Colors.green.shade700, fontSize: 12.sp, fontWeight: FontWeight.w600),
+              ),
+            ),
         ],
       ),
     );
@@ -858,7 +927,6 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
           allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
           onFileSelected: (file) {
             // Handle selected bank document file (no-op for now)
-            // You can store the file or update state here, e.g. setState(() => _bankDocument = file);
           },
         ),
         const SizedBox(height: 24),
@@ -907,7 +975,6 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   }
 
   /// Helper method to create responsive field layouts
-  /// Stacks vertically on mobile (<600px), horizontal on larger screens
   Widget _buildResponsiveRow({required List<Widget> children}) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1233,5 +1300,523 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         ),
       ),
     );
+  }
+
+  // OCR processing with retry mechanism
+  Future<void> _processEmiratesIdOcrWithRetry({int maxRetries = 3}) async {
+    int attempts = 0;
+    bool success = false;
+    
+    while (attempts < maxRetries && !success) {
+      try {
+        await _processEmiratesIdOcr();
+        success = true;
+      } catch (e) {
+        attempts++;
+        if (attempts >= maxRetries) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('OCR failed after $maxRetries attempts')),
+            );
+          }
+        } else {
+          // Wait a bit before retrying
+          await Future.delayed(const Duration(seconds: 1));
+        }
+      }
+    }
+  }
+
+  // OCR processing: runs text recognition on both images and updates controllers
+  Future<void> _processEmiratesIdOcr() async {
+    if (_isProcessingOcr) return;
+    if (_emiratesIdFrontFile == null || _emiratesIdBackFile == null) return;
+
+    setState(() {
+      _isProcessingOcr = true;
+    });
+
+    try {
+      final frontText = await _recognizeText(File(_emiratesIdFrontFile!));
+      final backText = await _recognizeText(File(_emiratesIdBackFile!));
+
+      // Debug logging
+      print('Front OCR Text: $frontText');
+      print('Back OCR Text: $backText');
+
+      // First try MRZ parsing from back (most reliable)
+      final mrzResult = _parseMrz(backText);
+      print('MRZ Result: $mrzResult');
+      if (mrzResult != null) {
+        _updateFieldsFromResult(mrzResult);
+      }
+
+      // Then try to parse front image for readable fields
+      final frontFields = _parseFrontText(frontText);
+      print('Front Fields: $frontFields');
+      _updateFieldsFromResult(frontFields, overwrite: mrzResult == null);
+
+      // Parse back image for employer, occupation, and other fields
+      final backFields = _parseBackText(backText);
+      print('Back Fields: $backFields');
+      _updateFieldsFromResult(backFields, overwrite: true);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Emirates ID fields autofilled')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('OCR failed: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingOcr = false;
+        });
+      }
+    }
+  }
+
+  Future<String> _recognizeText(File imageFile) async {
+    // Preprocess image for better OCR
+    final processedImage = await _preprocessImage(imageFile);
+    final inputImage = InputImage.fromFilePath(processedImage.path);
+    final textRecognizer = TextRecognizer();
+    
+    try {
+      final recognisedText = await textRecognizer.processImage(inputImage);
+      return recognisedText.text;
+    } finally {
+      await textRecognizer.close();
+    }
+  }
+
+  // Placeholder for image preprocessing
+  Future<File> _preprocessImage(File imageFile) async {
+    // You can use image package to enhance the image before OCR
+    // For example: increase contrast, convert to grayscale, etc.
+    // This is just a placeholder for the actual implementation
+    return imageFile;
+  }
+
+  // Parse MRZ style text from back of Emirates ID
+  Map<String, String?>? _parseMrz(String text) {
+    final lines = text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    if (lines.isEmpty) return null;
+
+    // Emirates ID MRZ typically has 3 lines at the bottom
+    // Look for lines with the pattern ID<ARE<...>
+    final mrzLines = lines.where((l) => 
+      l.contains('ID') && l.contains('ARE') && l.contains('<')
+    ).toList();
+    
+    if (mrzLines.isEmpty) return null;
+    
+    // Get the last 3 lines which should be the MRZ
+    final mrzStartIndex = lines.indexOf(mrzLines.first);
+    if (mrzStartIndex + 2 >= lines.length) return null;
+    
+    final line1 = lines[mrzStartIndex];
+    final line2 = lines[mrzStartIndex + 1];
+    final line3 = lines[mrzStartIndex + 2];
+    
+    final result = <String, String?>{
+      'id': null,
+      'name': null,
+      'nationality': null,
+      'dob': null,
+      'expiry': null,
+    };
+    
+    // Line 1: ID<ARE<LASTNAME<<FIRSTNAME<MIDDLENAME
+    if (line1.contains('ID') && line1.contains('ARE')) {
+      // Extract ID number from line 2
+      final idMatch = RegExp(r'([0-9]{3}-[0-9]{4}-[0-9]{7}-[0-9])').firstMatch(line2);
+      if (idMatch != null) {
+        result['id'] = idMatch.group(0);
+      }
+      
+      // Extract name from line 1
+      final nameParts = line1.split('<').where((p) => p.isNotEmpty).toList();
+      if (nameParts.length >= 3) {
+        // Emirates ID format: ID<ARE<LASTNAME<<FIRSTNAME<MIDDLENAME
+        final lastName = nameParts[2].trim();
+        final firstName = nameParts.length > 3 ? nameParts[3].trim() : '';
+        final middleName = nameParts.length > 4 ? nameParts[4].trim() : '';
+        
+        result['name'] = '$firstName $middleName $lastName'.trim();
+      }
+      
+      // Extract dates from line 3
+      // Format: YYYYMMDD<<SEX<EXPIRY<<<<<
+      final dobMatch = RegExp(r'([0-9]{7})').firstMatch(line3);
+      if (dobMatch != null) {
+        final dob = dobMatch.group(0)!;
+        if (dob.length == 7) {
+          // Format: YYMMDDc where c is check digit
+          final yy = int.parse(dob.substring(0, 2));
+          final mm = dob.substring(2, 4);
+          final dd = dob.substring(4, 6);
+          final year = (yy >= 0 && yy <= 30) ? (2000 + yy) : (1900 + yy);
+          result['dob'] = '$dd/$mm/$year';
+        }
+      }
+      
+      // Extract expiry date
+      final expiryMatch = RegExp(r'([0-9]{7})').allMatches(line3).toList();
+      if (expiryMatch.length >= 2) {
+        final expiry = expiryMatch[1].group(0)!;
+        if (expiry.length == 7) {
+          final yy = int.parse(expiry.substring(0, 2));
+          final mm = expiry.substring(2, 4);
+          final dd = expiry.substring(4, 6);
+          final year = (yy >= 0 && yy <= 30) ? (2000 + yy) : (1900 + yy);
+          result['expiry'] = '$dd/$mm/$year';
+        }
+      }
+      
+      // Nationality is ARE for UAE
+      result['nationality'] = 'United Arab Emirates';
+    }
+    
+    return result;
+  }
+
+  // Heuristics for front side text to find labeled fields
+  Map<String, String?> _parseFrontText(String text) {
+    final result = <String, String?>{
+      'id': null,
+      'name': null,
+      'dob': null,
+      'nationality': null,
+      'issue': null,
+      'expiry': null,
+    };
+
+    final lines = text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    
+    // Emirates ID has specific field labels
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final lower = line.toLowerCase();
+
+      // ID number with dashes
+      final idPattern = RegExp(r'[0-9]{3}-[0-9]{4}-[0-9]{7}-[0-9]');
+      final idMatch = idPattern.firstMatch(line);
+      if (idMatch != null) {
+        result['id'] = idMatch.group(0);
+        continue;
+      }
+
+      // Check for field labels in both English and Arabic
+      if (lower.contains('id number') || lower.contains('رقم الهوية')) {
+        // ID might be on the same line or next line
+        if (idMatch == null && i + 1 < lines.length) {
+          final nextIdMatch = idPattern.firstMatch(lines[i + 1]);
+          if (nextIdMatch != null) {
+            result['id'] = nextIdMatch.group(0);
+          }
+        }
+        continue;
+      }
+
+      // Name field
+      if (lower.contains('name') || lower.contains('الاسم')) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) result['name'] = parts[1].trim();
+        } else if (i + 1 < lines.length) {
+          result['name'] = lines[i + 1];
+        }
+        continue;
+      }
+
+      // Date of birth
+      if (lower.contains('date of birth') || lower.contains('تاريخ الميلاد')) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['dob'] = _normalizeDate(parts[1].trim());
+          }
+        } else if (i + 1 < lines.length) {
+          result['dob'] = _normalizeDate(lines[i + 1]);
+        }
+        continue;
+      }
+
+      // Nationality
+      if (lower.contains('nationality') || lower.contains('الجنسية')) {
+        String? natValue;
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) natValue = parts[1].trim();
+        } else if (i + 1 < lines.length) {
+          natValue = lines[i + 1].trim();
+        }
+        // Fix: If nationality contains 'india' (case-insensitive), set to 'India'
+        if (natValue != null && natValue.toLowerCase().contains('india')) {
+          result['nationality'] = 'India';
+        } else if (natValue != null && natValue.isNotEmpty) {
+          result['nationality'] = natValue;
+        }
+        continue;
+      }
+
+      // Issue date (ensure not to overwrite nationality)
+      if ((lower.contains('issue') || lower.contains('إصدار')) && !lower.contains('nationality')) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['issue'] = _normalizeDate(parts[1].trim());
+          }
+        } else if (i + 1 < lines.length) {
+          result['issue'] = _normalizeDate(lines[i + 1]);
+        }
+        continue;
+      }
+
+      // Expiry date
+      if (lower.contains('expiry') || lower.contains('انتهاء')) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['expiry'] = _normalizeDate(parts[1].trim());
+          }
+        } else if (i + 1 < lines.length) {
+          result['expiry'] = _normalizeDate(lines[i + 1]);
+        }
+        continue;
+      }
+
+      // Try to extract any date format
+      final dateMatch = RegExp(r'\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b').firstMatch(line);
+      if (dateMatch != null) {
+        final date = _normalizeDate(dateMatch.group(0)!);
+        // If we don't have dates yet, try to assign based on context
+        if (result['dob'] == null && result['issue'] == null && result['expiry'] == null) {
+          // First date is likely DOB
+          result['dob'] = date;
+        } else if (result['dob'] != null && result['issue'] == null && result['expiry'] == null) {
+          // Second date is likely issue date
+          result['issue'] = date;
+        } else if (result['dob'] != null && result['issue'] != null && result['expiry'] == null) {
+          // Third date is likely expiry date
+          result['expiry'] = date;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // Parse back side text for employer, occupation, nationality, issue/expiry
+  Map<String, String?> _parseBackText(String text) {
+    final result = <String, String?>{
+      'employer': null,
+      'occupation': null,
+      'nationality': null,
+      'issue': null,
+      'expiry': null,
+    };
+
+    final lines = text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    
+    // Arabic keywords mapping
+    final arabicEmployerKeywords = ['صاحب العمل', 'الجهة', 'الشركة'];
+    final arabicOccupationKeywords = ['المهنة', 'وظيفة', 'المسمى الوظيفي'];
+    final arabicNationalityKeywords = ['الجنسية'];
+    final arabicIssueKeywords = ['تاريخ الإصدار'];
+    final arabicExpiryKeywords = ['تاريخ الانتهاء'];
+    
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final lower = line.toLowerCase();
+      
+      // Employer / Company
+      if (lower.contains('employer') || lower.contains('company') || 
+          arabicEmployerKeywords.any((k) => line.contains(k))) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['employer'] = parts.sublist(1).join(':').trim();
+          }
+        } else if (i + 1 < lines.length) {
+          result['employer'] = lines[i + 1];
+        }
+        continue;
+      }
+      
+      // Occupation
+      if (lower.contains('occupation') || lower.contains('profession') || 
+          arabicOccupationKeywords.any((k) => line.contains(k))) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['occupation'] = parts.sublist(1).join(':').trim();
+          }
+        } else if (i + 1 < lines.length) {
+          result['occupation'] = lines[i + 1];
+        }
+        continue;
+      }
+      
+      // Nationality
+      if (lower.contains('nationality') || 
+          arabicNationalityKeywords.any((k) => line.contains(k))) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['nationality'] = parts[1].trim();
+          }
+        } else if (i + 1 < lines.length) {
+          result['nationality'] = lines[i + 1];
+        }
+        continue;
+      }
+      
+      // Issue date
+      if (lower.contains('issue') || lower.contains('issued') || 
+          arabicIssueKeywords.any((k) => line.contains(k))) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['issue'] = _normalizeDate(parts[1].trim());
+          }
+        } else if (i + 1 < lines.length) {
+          result['issue'] = _normalizeDate(lines[i + 1]);
+        }
+        continue;
+      }
+      
+      // Expiry date
+      if (lower.contains('expiry') || lower.contains('expire') || 
+          arabicExpiryKeywords.any((k) => line.contains(k))) {
+        if (line.contains(':')) {
+          final parts = line.split(':');
+          if (parts.length > 1) {
+            result['expiry'] = _normalizeDate(parts[1].trim());
+          }
+        } else if (i + 1 < lines.length) {
+          result['expiry'] = _normalizeDate(lines[i + 1]);
+        }
+        continue;
+      }
+      
+      // Try to extract any date format
+      final dateMatch = RegExp(r'\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b').firstMatch(line);
+      if (dateMatch != null) {
+        final date = _normalizeDate(dateMatch.group(0)!);
+        // If we don't have dates yet, try to assign based on context
+        if (result['issue'] == null && result['expiry'] == null) {
+          // First date is likely issue date
+          result['issue'] = date;
+        } else if (result['issue'] != null && result['expiry'] == null) {
+          // Second date is likely expiry date
+          result['expiry'] = date;
+        }
+      }
+    }
+    
+    return result;
+  }
+
+  // Helper to normalize date formats
+  String _normalizeDate(String date) {
+    // Convert dd-mm-yyyy or yyyy-mm-dd to dd/mm/yyyy
+    if (date.contains('-')) {
+      final parts = date.split('-');
+      if (parts.length == 3) {
+        // Check if it's yyyy-mm-dd
+        if (parts[0].length == 4) {
+          return '${parts[2]}/${parts[1]}/${parts[0]}';
+        } else {
+          // It's dd-mm-yyyy
+          return '${parts[0]}/${parts[1]}/${parts[2]}';
+        }
+      }
+    }
+    return date;
+  }
+
+  // Helper to update form fields from parsed results
+  void _updateFieldsFromResult(Map<String, String?> result, {bool overwrite = false}) {
+    if (result['id'] != null && (overwrite || _emiratesIdController.text.isEmpty)) {
+      if (_isValidEmiratesId(result['id']!)) {
+        _emiratesIdController.text = result['id']!;
+      }
+    }
+    
+    if (result['name'] != null && (overwrite || _nameOfHolderController.text.isEmpty)) {
+      _nameOfHolderController.text = result['name']!;
+      
+      // Try to split name into first, middle, last
+      final nameParts = result['name']!.split(' ');
+      if (nameParts.isNotEmpty && (overwrite || _firstNameController.text.isEmpty)) {
+        _firstNameController.text = nameParts.first;
+      }
+      if (nameParts.length > 2 && (overwrite || _middleNameController.text.isEmpty)) {
+        _middleNameController.text = nameParts.sublist(1, nameParts.length - 1).join(' ');
+      }
+      if (nameParts.length > 1 && (overwrite || _lastNameController.text.isEmpty)) {
+        _lastNameController.text = nameParts.last;
+      }
+    }
+    
+    if (result['dob'] != null && (overwrite || _dobController.text.isEmpty)) {
+      if (_isValidDate(result['dob']!)) {
+        _dobController.text = result['dob']!;
+      }
+    }
+    
+    if (result['nationality'] != null && (overwrite || _nationalityController.text.isEmpty)) {
+      _nationalityController.text = result['nationality']!;
+    }
+    
+    if (result['issue'] != null && (overwrite || _issueDateController.text.isEmpty)) {
+      if (_isValidDate(result['issue']!)) {
+        _issueDateController.text = result['issue']!;
+      }
+    }
+    
+    if (result['expiry'] != null && (overwrite || _expiryDateController.text.isEmpty)) {
+      if (_isValidDate(result['expiry']!)) {
+        _expiryDateController.text = result['expiry']!;
+      }
+    }
+    
+    if (result['employer'] != null && (overwrite || _companyDetailsController.text.isEmpty)) {
+      _companyDetailsController.text = result['employer']!;
+    }
+    
+    if (result['occupation'] != null && (overwrite || _occupationController.text.isEmpty)) {
+      _occupationController.text = result['occupation']!;
+    }
+  }
+
+  // Validation helpers
+  bool _isValidEmiratesId(String id) {
+    // Emirates ID format: XXX-XXXX-XXXXXXX-X
+    return RegExp(r'^[0-9]{3}-[0-9]{4}-[0-9]{7}-[0-9]$').hasMatch(id);
+  }
+
+  bool _isValidDate(String date) {
+    // Check if date is in DD/MM/YYYY format and is a valid date
+    try {
+      final parts = date.split('/');
+      if (parts.length != 3) return false;
+      
+      final day = int.parse(parts[0]);
+      final month = int.parse(parts[1]);
+      final year = int.parse(parts[2]);
+      
+      final dateObj = DateTime(year, month, day);
+      return dateObj.day == day && dateObj.month == month && dateObj.year == year;
+    } catch (e) {
+      return false;
+    }
   }
 }
