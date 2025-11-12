@@ -1,0 +1,68 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.35.7'
+        channel: 'stable'
+    
+    - name: Install dependencies
+      run: flutter pub get
+    
+    - name: Analyze code
+      run: flutter analyze
+    
+    - name: Run tests
+      run: flutter test
+    
+    - name: Build iOS (no signing)
+      run: |
+        flutter build ios --release --no-codesign
+    
+    # For actual App Store builds, you need to configure signing
+    # Uncomment and configure the following steps:
+    
+    # - name: Install Apple Certificate
+    #   uses: apple-actions/import-codesign-certs@v2
+    #   with:
+    #     p12-file-base64: ${{ secrets.IOS_CERTIFICATE_P12 }}
+    #     p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+    
+    # - name: Install Provisioning Profile
+    #   run: |
+    #     mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+    #     echo "${{ secrets.IOS_PROVISIONING_PROFILE }}" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+    
+    # - name: Build IPA
+    #   run: |
+    #     flutter build ipa --release \
+    #       --export-options-plist=ios/ExportOptions.plist
+    
+    # - name: Upload IPA to artifacts
+    #   uses: actions/upload-artifact@v4
+    #   with:
+    #     name: ios-ipa
+    #     path: build/ios/ipa/*.ipa
+    
+    # - name: Upload to TestFlight
+    #   uses: apple-actions/upload-testflight-build@v1
+    #   with:
+    #     app-path: build/ios/ipa/rak_app.ipa
+    #     issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+    #     api-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+    #     api-private-key: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}

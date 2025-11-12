@@ -313,8 +313,8 @@ class AuthService {
       _logger.warning('Server logout failed, clearing local session anyway');
     }
 
-    // Clear local storage
-    await StorageService.clearAllAuthData();
+    // Clear local storage including autologin data
+    await StorageService.clearAllAuthDataEnhanced();
     AuthManager.clearUser();
     await Future.delayed(const Duration(milliseconds: 500));
   }

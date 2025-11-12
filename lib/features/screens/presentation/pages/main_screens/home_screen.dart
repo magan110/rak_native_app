@@ -5,6 +5,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/services/auth_service.dart';
 import 'package:rak_app/core/utils/responsive_utils.dart';
+import 'package:rak_app/shared/widgets/combined_logo_widget.dart';
 
 /// Clean Modern Responsive Mobile Home Screen
 class HomeScreen extends StatefulWidget {
@@ -156,9 +157,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   PreferredSizeWidget _buildAppBar() {
-    final currentUser = AuthManager.currentUser;
-    final userName = currentUser?.emplName ?? 'Guest';
-
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0,
@@ -193,47 +191,55 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         ),
       ),
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+      title: ValueListenableBuilder<int>(
+        valueListenable: AuthManager.authChangeNotifier,
+        builder: (context, _, __) {
+          final currentUser = AuthManager.currentUser;
+          final userName = currentUser?.emplName ?? 'Guest';
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'Hello, ',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                  color: Colors.grey[600],
-                ),
-              ),
-              Flexible(
-                child: Text(
-                  userName.split(' ').first,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E3A8A),
+              Row(
+                children: [
+                  Text(
+                    'Hello, ',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.grey[600],
+                    ),
                   ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
+                  Flexible(
+                    child: Text(
+                      userName.split(' ').first,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1E3A8A),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                  const Text(' 👋', style: TextStyle(fontSize: 16)),
+                ],
               ),
-              const Text(' 👋', style: TextStyle(fontSize: 16)),
+              const SizedBox(height: 2),
+              Text(
+                'Welcome back!',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  color: Colors.grey[500],
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
             ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Welcome back!',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w400,
-              color: Colors.grey[500],
-            ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-          ),
-        ],
+          );
+        },
       ),
       actions: [
         // Search Button
@@ -266,7 +272,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         Padding(
           padding: EdgeInsets.only(right: 8.w),
           child: IconButton(
-            onPressed: () {},
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              context.push('/notifications');
+            },
             icon: Container(
               padding: EdgeInsets.all(10.w),
               decoration: BoxDecoration(
@@ -320,11 +329,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildDrawer() {
-    final currentUser = AuthManager.currentUser;
-    final userName = currentUser?.emplName ?? 'Guest User';
-    final userArea = currentUser?.areaCode ?? 'N/A';
-    final userInitial = userName.isNotEmpty ? userName[0].toUpperCase() : 'G';
+    return ValueListenableBuilder<int>(
+      valueListenable: AuthManager.authChangeNotifier,
+      builder: (context, _, __) {
+        final currentUser = AuthManager.currentUser;
+        final userName = currentUser?.emplName ?? 'Guest User';
+        final userArea = currentUser?.areaCode ?? 'N/A';
+        final userInitial = userName.isNotEmpty
+            ? userName[0].toUpperCase()
+            : 'G';
 
+        return _buildDrawerContent(userName, userArea, userInitial);
+      },
+    );
+  }
+
+  Widget _buildDrawerContent(
+    String userName,
+    String userArea,
+    String userInitial,
+  ) {
     return Drawer(
       backgroundColor: const Color(0xFFFAFAFA),
       width: MediaQuery.of(context).size.width * 0.85,
@@ -353,10 +377,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: 20.w,
-                  vertical: 20.h,
-                ),
+                padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 20.h),
                 child: Row(
                   children: [
                     // User Avatar
@@ -439,26 +460,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ],
                       ),
                     ),
-                    // Logo (optional, remove if too crowded)
-                    Container(
-                      padding: EdgeInsets.all(8.w),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12.r),
-                      ),
-                      child: Image.asset(
-                        'assets/images/rak_logo.jpg',
-                        height: 36.h,
-                        width: 36.w,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Icon(
-                              Icons.business_rounded,
-                              color: Colors.white,
-                              size: 36.sp,
-                            ),
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -480,10 +481,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ],
               ),
               child: ListView(
-                padding: EdgeInsets.symmetric(
-                  vertical: 12.h,
-                  horizontal: 8.w,
-                ),
+                padding: EdgeInsets.symmetric(vertical: 12.h, horizontal: 8.w),
                 children: _buildDrawerItems(isMobile: true),
               ),
             ),
@@ -546,7 +544,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             size: 18.sp,
           ),
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12.r),
+        ),
         contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
       ),
     );
@@ -703,30 +703,34 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             SizedBox(width: (isTablet ? 20 : 16).w),
             Container(
-              width: logoSize,
-              height: logoSize,
-              padding: EdgeInsets.all((isTablet ? 10 : 8).w),
+              width: logoSize * 2.4,
+              height: logoSize * 1.5,
               decoration: BoxDecoration(
-                color: Colors.white,
+                border: Border.all(color: const Color(0xFF2C5282), width: 2.0),
                 borderRadius: BorderRadius.circular((isTablet ? 14 : 12).r),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: (isTablet ? 7 : 5).r,
-                    offset: Offset(0, 2.h),
+                    color: Colors.black.withValues(alpha: 0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular((isTablet ? 10 : 8).r),
-                child: Image.asset(
-                  'assets/images/rak_logo.jpg',
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular((isTablet ? 12 : 10).r),
+                ),
+                padding: EdgeInsets.symmetric(
+                  vertical: 0.0,
+                  horizontal: (isTablet ? 4 : 3).w,
+                ),
+                child: CombinedLogoWidget(
+                  height: (isTablet ? 70 : 55).sp,
+                  width: (isTablet ? 180 : 140).sp,
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) => Icon(
-                    Icons.business_rounded,
-                    color: const Color(0xFF1E3A8A),
-                    size: (isTablet ? 32 : 24).sp,
-                  ),
+                  isCircular: false,
+                  showBorder: false,
                 ),
               ),
             ),
@@ -784,7 +788,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ),
               GestureDetector(
-                onTap: () {},
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  context.push('/product-details');
+                },
                 child: Container(
                   padding: EdgeInsets.symmetric(
                     horizontal: (isTablet ? 14 : 10).w,
@@ -793,14 +800,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   decoration: BoxDecoration(
                     color: const Color(0xFF3B82F6).withOpacity(0.1),
                     borderRadius: BorderRadius.circular((isTablet ? 14 : 12).r),
-                  ),
-                  child: Text(
-                    'View All',
-                    style: TextStyle(
-                      fontSize: (isTablet ? 14 : 12).sp,
-                      fontWeight: FontWeight.w600,
-                      color: const Color(0xFF3B82F6),
-                    ),
                   ),
                 ),
               ),
@@ -818,12 +817,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 final product = products[index];
                 return Padding(
                   padding: EdgeInsets.only(right: (isTablet ? 16 : 12).w),
-                  child: _buildProductCard(
-                    product['image']!,
-                    product['title']!,
-                    product['badge']!,
-                    product['color']!,
-                    isTablet: isTablet,
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      context.push('/product-details');
+                    },
+                    child: _buildProductCard(
+                      product['image']!,
+                      product['title']!,
+                      product['badge']!,
+                      product['color']!,
+                      isTablet: isTablet,
+                    ),
                   ),
                 );
               },
@@ -905,7 +910,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                     decoration: BoxDecoration(
                       color: color,
-                      borderRadius: BorderRadius.circular((isTablet ? 10 : 8).r),
+                      borderRadius: BorderRadius.circular(
+                        (isTablet ? 10 : 8).r,
+                      ),
                     ),
                     child: Text(
                       badge,
@@ -940,14 +947,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          'Explore',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 10.sp,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
                         SizedBox(width: 3.w),
                         Icon(
                           Icons.arrow_forward,
@@ -992,28 +991,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           childAspectRatio: 1.1,
           children: [
             _buildQuickActionCard(
-              'Scan QR',
-              Icons.qr_code_scanner,
-              const Color(0xFF3B82F6),
-              () {},
-            ),
-            _buildQuickActionCard(
               'Products',
               Icons.inventory_2,
               const Color(0xFF10B981),
-              () {},
+              () {
+                context.push('/product-details');
+              },
             ),
             _buildQuickActionCard(
-              'Rewards',
-              Icons.card_giftcard,
-              const Color(0xFFF59E0B),
-              () {},
-            ),
-            _buildQuickActionCard(
-              'Reports',
-              Icons.bar_chart,
-              const Color(0xFF60A5FA),
-              () {},
+              'Admin User Edit',
+              Icons.admin_panel_settings,
+              const Color(0xFF3B82F6),
+              () {
+                context.push('/admin-user-edit');
+              },
             ),
           ],
         ),
@@ -1115,56 +1106,58 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         // Compute a reasonable mainAxisExtent based on whether the device
         // is a tablet and the ScreenUtil sizing. This prevents the grid
         // from trying to expand vertically beyond the available viewport.
-        Builder(builder: (context) {
-          // Desired tile height (responsive) - nudged slightly larger to
-          // prevent 1-3 pixel bottom overflow on some devices/screens.
-          final double desiredTileHeight = isTablet ? 146.h : 126.h;
+        Builder(
+          builder: (context) {
+            // Desired tile height (responsive) - nudged slightly larger to
+            // prevent 1-3 pixel bottom overflow on some devices/screens.
+            final double desiredTileHeight = isTablet ? 146.h : 126.h;
 
-          final metrics = [
-            () => _buildMetricCard(
-                  'Total Scans',
-                  '1,234',
-                  '+12.5%',
-                  const Color(0xFF10B981),
-                  Icons.qr_code_scanner,
-                ),
-            () => _buildMetricCard(
-                  'Points',
-                  '5,678',
-                  '+8.2%',
-                  const Color(0xFF60A5FA),
-                  Icons.star,
-                ),
-            () => _buildMetricCard(
-                  'Campaigns',
-                  '12',
-                  '+2',
-                  const Color(0xFFF59E0B),
-                  Icons.campaign,
-                ),
-            () => _buildMetricCard(
-                  'Target',
-                  '85%',
-                  '+15%',
-                  const Color(0xFF1E3A8A),
-                  Icons.trending_up,
-                ),
-          ];
+            final metrics = [
+              () => _buildMetricCard(
+                'Total Scans',
+                '0',
+                '0',
+                const Color(0xFF10B981),
+                Icons.qr_code_scanner,
+              ),
+              () => _buildMetricCard(
+                'Points',
+                '0',
+                '0',
+                const Color(0xFF60A5FA),
+                Icons.star,
+              ),
+              () => _buildMetricCard(
+                'Campaigns',
+                '0',
+                '0',
+                const Color(0xFFF59E0B),
+                Icons.campaign,
+              ),
+              () => _buildMetricCard(
+                'Target',
+                '0',
+                '0',
+                const Color(0xFF1E3A8A),
+                Icons.trending_up,
+              ),
+            ];
 
-          return GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: metrics.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12.w,
-              mainAxisSpacing: 12.h,
-              // Fix each tile to a predictable height to avoid overflow
-              mainAxisExtent: desiredTileHeight,
-            ),
-            itemBuilder: (context, index) => metrics[index](),
-          );
-        }),
+            return GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: metrics.length,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12.w,
+                mainAxisSpacing: 12.h,
+                // Fix each tile to a predictable height to avoid overflow
+                mainAxisExtent: desiredTileHeight,
+              ),
+              itemBuilder: (context, index) => metrics[index](),
+            );
+          },
+        ),
       ],
     );
   }
@@ -1330,6 +1323,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     required bool isTablet,
     required double screenWidth,
   }) {
+    final currentUser = AuthManager.currentUser;
+    final userName = currentUser?.emplName ?? 'Guest User';
+
     return SingleChildScrollView(
       padding: EdgeInsets.all(16.w),
       child: Column(
@@ -1352,18 +1348,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                     borderRadius: BorderRadius.circular(50.r),
                   ),
-                  child: Icon(
-                    Icons.person,
-                    color: Colors.white,
-                    size: 50.sp,
-                  ),
+                  child: Icon(Icons.person, color: Colors.white, size: 50.sp),
                 ),
               );
             },
           ),
           SizedBox(height: 16.h),
           Text(
-            'User Name',
+            userName,
             style: TextStyle(
               fontSize: 20.sp,
               fontWeight: FontWeight.bold,
@@ -1371,10 +1363,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
           SizedBox(height: 4.h),
-          Text(
-            'user@example.com',
-            style: TextStyle(fontSize: 14.sp, color: Colors.grey[600]),
-          ),
           SizedBox(height: 24.h),
           TweenAnimationBuilder<double>(
             duration: const Duration(milliseconds: 600),
@@ -1399,21 +1387,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     children: [
                       _buildProfileItem(
                         'My Points',
-                        '5,678',
+                        '0',
                         Icons.star,
                         const Color(0xFFF59E0B),
                       ),
                       Divider(height: 24.h),
                       _buildProfileItem(
                         'Total Scans',
-                        '1,234',
+                        '0',
                         Icons.qr_code_scanner,
                         const Color(0xFF3B82F6),
                       ),
                       Divider(height: 24.h),
                       _buildProfileItem(
                         'Rewards',
-                        '12',
+                        '0',
                         Icons.card_giftcard,
                         const Color(0xFF10B981),
                       ),
@@ -1431,7 +1419,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               return Transform.scale(
                 scale: scale,
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    context.go('/login-with-password');
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFEF4444),
                     foregroundColor: Colors.white,
@@ -1446,7 +1436,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                   child: Text(
                     'Logout',
-                    style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 16.sp,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               );
@@ -1531,7 +1524,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           selectedIndex: _currentIndex,
           onDestinationSelected: (index) {
             HapticFeedback.mediumImpact();
-            setState(() => _currentIndex = index);
+            if (index == 1) {
+              // Navigate to camera scanner when scan is tapped
+              context.push('/camera-scanner');
+            } else {
+              setState(() => _currentIndex = index);
+            }
           },
           elevation: 0,
           height: navHeight,
@@ -1648,9 +1646,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           );
         }),
         _buildDrawerItem(Icons.logout, 'Logout', () async {
+          if (isMobile) Navigator.of(context).pop(); // Close drawer first
           await AuthService.logout();
           if (context.mounted) {
-            context.go('/login-password');
+            // Use pushReplacement to avoid navigation stack issues
+            context.pushReplacement('/login-with-password');
           }
         }),
       ];
@@ -1679,14 +1679,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           if (isMobile) context.pop();
           context.pushNamed('retailer-registration');
         }),
-        _buildDrawerItem(Icons.inventory, 'Sample Distribution Entry', () {
-          if (isMobile) context.pop();
-          context.push('/sample-distribution');
-        }),
-        _buildDrawerItem(Icons.science, 'Sample Execution Entry', () {
-          if (isMobile) context.pop();
-          context.push('/sampling-drive-form');
-        }),
+        // _buildDrawerItem(Icons.inventory, 'Sample Distribution Entry', () {
+        //   if (isMobile) context.pop();
+        //   context.push('/sample-distribution');
+        // }),
+        // _buildDrawerItem(Icons.science, 'Sample Execution Entry', () {
+        //   if (isMobile) context.pop();
+        //   context.push('/sampling-drive-form');
+        // }),
         const Divider(height: 32),
         _buildDrawerItem(Icons.settings, 'Settings', () {
           if (isMobile) context.pop();
@@ -1701,9 +1701,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           );
         }),
         _buildDrawerItem(Icons.logout, 'Logout', () async {
+          if (isMobile) Navigator.of(context).pop(); // Close drawer first
           await AuthService.logout();
           if (context.mounted) {
-            context.go('/login-password');
+            // Use pushReplacement to avoid navigation stack issues
+            context.pushReplacement('/login-with-password');
           }
         }),
       ];
@@ -1769,7 +1771,7 @@ class _CustomSearchDelegate extends SearchDelegate<String> {
               'Painter Registration',
               'Contractor Registration',
               'Retailer Onboarding',
-              'Sample Distribution',
+              // 'Sample Distribution',
               'Activity Entry',
             ]
             .where(

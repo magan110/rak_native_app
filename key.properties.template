@@ -1,0 +1,11 @@
+# key.properties.template - copy this file to `key.properties` at the project root and fill in real values.
+# Do NOT commit your real `key.properties` with real passwords to source control.
+
+# Path to the keystore file. This repository already includes a keystore at android/app/upload-keystore.jks
+storeFile=android/app/upload-keystore.jks
+
+# Replace the passwords and alias below with your actual keystore values
+storePassword=REPLACE_WITH_REAL_STORE_PASSWORD
+keyAlias=REPLACE_WITH_REAL_KEY_ALIAS
+keyPassword=REPLACE_WITH_REAL_KEY_PASSWORD
+

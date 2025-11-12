@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -6,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:pdfx/pdfx.dart';
 import 'dart:io';
 import '../../core/utils/responsive_utils.dart';
+import '../../core/services/image_upload_service.dart';
 
 class FileUploadWidget extends StatefulWidget {
   final String label;
@@ -18,6 +18,19 @@ class FileUploadWidget extends StatefulWidget {
   final String? currentFilePath;
   final String? formType; // 'contractor' or 'painter' get a simplified picker
 
+  // Image upload properties
+  final String? personName;
+  final String? mobileNumber;
+  final bool enableServerUpload;
+  final Function(ImageUploadResponse)? onUploadSuccess;
+  final Function(String)? onUploadError;
+
+  // OCR-related properties (disabled for now)
+  final bool enableOcr;
+  final String? expectedDocumentType;
+  final Function(Map<String, dynamic>)? onOcrComplete;
+  final Function(Map<String, dynamic>)? onOcrStateChanged;
+
   const FileUploadWidget({
     super.key,
     required this.label,
@@ -29,6 +42,15 @@ class FileUploadWidget extends StatefulWidget {
     this.maxSizeInMB = 15.0,
     this.currentFilePath,
     this.formType,
+    this.personName,
+    this.mobileNumber,
+    this.enableServerUpload = false,
+    this.onUploadSuccess,
+    this.onUploadError,
+    this.enableOcr = false,
+    this.expectedDocumentType,
+    this.onOcrComplete,
+    this.onOcrStateChanged,
   });
 
   @override
@@ -44,6 +66,8 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
   bool _isUploading = false;
   bool _isUploaded = false;
   String? _uploadError;
+
+  // OCR-related state (disabled for now)
 
   AnimationController? _animationController;
   Animation<double>? _scaleAnimation;
@@ -67,6 +91,8 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
     _progressAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animationController!, curve: Curves.easeInOut),
     );
+
+    // OCR functionality disabled for now
 
     Future.delayed(widget.delay, () {
       if (mounted) setState(() => _isVisible = true);
@@ -107,12 +133,6 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
   void _safeShowSnackBar(SnackBar bar) {
     if (mounted && _scaffoldMessenger != null) {
       _scaffoldMessenger!.showSnackBar(bar);
-    }
-  }
-
-  void _safeHideCurrentSnackBar() {
-    if (mounted && _scaffoldMessenger != null) {
-      _scaffoldMessenger!.hideCurrentSnackBar();
     }
   }
 
@@ -692,12 +712,8 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
                   // SAFE DIMENSION GUARD to prevent 1x1/0x0 allocations
                   final pw = pageSnapshot.data!.width;
                   final ph = pageSnapshot.data!.height;
-                  final double safeW = (pw > 10)
-                      ? pw.toDouble() * 2.0
-                      : 800.0;
-                  final double safeH = (ph > 10)
-                      ? ph.toDouble() * 2.0
-                      : 1200.0;
+                  final double safeW = (pw > 10) ? pw.toDouble() * 2.0 : 800.0;
+                  final double safeH = (ph > 10) ? ph.toDouble() * 2.0 : 1200.0;
 
                   return FutureBuilder<PdfPageImage?>(
                     future: pageSnapshot.data!.render(
@@ -1548,7 +1564,41 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
 
     _animationController?.repeat();
 
-    Future.delayed(const Duration(seconds: 2), () {
+    // If server upload is enabled and we have person details, upload to server
+    if (widget.enableServerUpload && 
+        widget.personName != null && 
+        widget.mobileNumber != null &&
+        _isImageFileLocal(filePath)) {
+      _uploadToServer(filePath);
+    } else {
+      // Original behavior - simulate upload
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _animationController?.stop();
+          _animationController?.reset();
+
+          setState(() {
+            _isUploading = false;
+            _isUploaded = true;
+            _uploadError = null;
+          });
+
+          _showEnhancedSuccessSnackBar('${widget.label} uploaded successfully!');
+          widget.onFileSelected(filePath);
+        }
+      });
+    }
+  }
+
+  Future<void> _uploadToServer(String filePath) async {
+    try {
+      final file = File(filePath);
+      final response = await ImageUploadService.uploadImage(
+        file: file,
+        personName: widget.personName!,
+        mobileNumber: widget.mobileNumber!,
+      );
+
       if (mounted) {
         _animationController?.stop();
         _animationController?.reset();
@@ -1559,10 +1609,38 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
           _uploadError = null;
         });
 
-        _showEnhancedSuccessSnackBar('${widget.label} uploaded successfully!');
+        _showEnhancedSuccessSnackBar('${widget.label} uploaded successfully to server!');
         widget.onFileSelected(filePath);
+        
+        // Call success callback if provided
+        if (widget.onUploadSuccess != null) {
+          widget.onUploadSuccess!(response);
+        }
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        _animationController?.stop();
+        _animationController?.reset();
+
+        setState(() {
+          _isUploading = false;
+          _isUploaded = false;
+          _uploadError = e.toString();
+        });
+
+        _safeShowSnackBar(
+          SnackBar(
+            content: Text('Upload failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+
+        // Call error callback if provided
+        if (widget.onUploadError != null) {
+          widget.onUploadError!(e.toString());
+        }
+      }
+    }
   }
 
   void _simulateFileUpload(String fileType, String fileName) {
@@ -1596,10 +1674,26 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
 
   Future<void> _retryUpload() async {
     if (_selectedFilePath == null) return;
-    _simulateFileUpload(
-      _fileType ?? 'document',
-      _originalFileName ?? 'file.jpg',
-    );
+    
+    // If server upload is enabled, retry server upload
+    if (widget.enableServerUpload && 
+        widget.personName != null && 
+        widget.mobileNumber != null &&
+        _isImageFileLocal(_selectedFilePath!)) {
+      setState(() {
+        _isUploading = true;
+        _isUploaded = false;
+        _uploadError = null;
+      });
+      _animationController?.repeat();
+      _uploadToServer(_selectedFilePath!);
+    } else {
+      // Original behavior - simulate upload
+      _simulateFileUpload(
+        _fileType ?? 'document',
+        _originalFileName ?? 'file.jpg',
+      );
+    }
   }
 
   void _removeFile() {
@@ -1704,24 +1798,6 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 3),
         margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
-
-  void _showErrorSnackBar(String message) {
-    _safeShowSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.error, color: Colors.white, size: 20),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 5),
       ),
     );
   }

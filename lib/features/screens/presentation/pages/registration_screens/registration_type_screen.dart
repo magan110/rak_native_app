@@ -4,6 +4,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/routes/route_names.dart';
 
+
 class RegistrationTypeScreen extends StatefulWidget {
   const RegistrationTypeScreen({super.key});
 
@@ -223,6 +224,7 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
                 isSmallScreen: isSmallScreen,
               ),
             ),
+
             SizedBox(height: verticalSpacing + 8),
 
             // Information Section
@@ -342,6 +344,7 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
             isSmallScreen: isSmallScreen,
           ),
           SizedBox(height: itemSpacing),
+
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -494,6 +497,8 @@ class _RegistrationTypeScreenState extends State<RegistrationTypeScreen>
       ),
     );
   }
+
+
 }
 
 class _MobileRegistrationCard extends StatefulWidget {
@@ -751,3 +756,5 @@ class _MobileRegistrationCardState extends State<_MobileRegistrationCard>
     );
   }
 }
+
+

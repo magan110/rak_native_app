@@ -1,4 +1,4 @@
-package com.example.rak_app
+package com.rakapp.com
 
 import android.Manifest
 import android.content.pm.PackageManager

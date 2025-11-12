@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:rak_app/core/services/storage_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
-import '../../../../../core/services/auth_service.dart';
-import 'package:rak_app/core/models/auth_models.dart';
+
+// Import services for auto-login functionality
+import '../../../../../core/services/storage_service.dart';
+import '../../../../../core/services/autologin_service.dart';
+import '../../../../../core/services/maintenance_service.dart';
+import '../../../../../shared/widgets/combined_logo_widget.dart';
+import '../../../../../shared/widgets/maintenance_dialog.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -85,50 +89,168 @@ class _SplashScreenState extends State<SplashScreen>
     final startTime = DateTime.now();
 
     try {
-      // Check if auto-login is possible
-      final canAutoLogin = await StorageService.canAutoLogin();
+      // First check maintenance status
+      setState(() {
+        _loadingText = 'Checking app status...';
+      });
 
-      if (canAutoLogin) {
+      debugPrint('🔍 Splash: Checking maintenance status...');
+      final maintenanceStatus = await MaintenanceService.checkMaintenanceStatus();
+      
+      debugPrint('🔍 Splash: Maintenance check - success: ${maintenanceStatus.success}, running: ${maintenanceStatus.isRunning}');
+
+      // If app is under maintenance, show dialog and stop
+      if (maintenanceStatus.isUnderMaintenance) {
+        debugPrint('🚫 Splash: App is under maintenance');
+        
+        // Ensure minimum splash time has passed
+        final elapsed = DateTime.now().difference(startTime);
+        if (elapsed < minSplashDuration) {
+          await Future.delayed(minSplashDuration - elapsed);
+        }
+
+        if (mounted) {
+          // Show maintenance dialog
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => MaintenanceDialog(
+              message: maintenanceStatus.message,
+            ),
+          );
+        }
+        return;
+      }
+
+      // If maintenance check failed but we got a response, log and continue
+      if (!maintenanceStatus.success) {
+        debugPrint('⚠️ Splash: Maintenance check failed: ${maintenanceStatus.message}');
+        // Continue with normal flow - don't block app if maintenance API is down
+      }
+      /* FOR TESTING: Auto-login as painter with mobile 505555555
+      setState(() {
+        _loadingText = 'Auto-logging in for testing...';
+      });
+
+      await Future.delayed(const Duration(milliseconds: 1000));
+
+      setState(() {
+        _loadingText = 'Welcome back, Mohammad Azhar Hussain!';
+      });
+
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      // Ensure minimum splash time has passed
+      final elapsed = DateTime.now().difference(startTime);
+      if (elapsed < minSplashDuration) {
+        await Future.delayed(minSplashDuration - elapsed);
+      }
+
+      if (mounted) {
+        // Navigate directly to painter home screen for testing
+        context.go(
+          '/painter-home',
+          extra: {
+            'isNewRegistration': false,
+            'userRole': 'painter',
+            'registeredName': 'Mohammad Azhar Hussain',
+            'emirates': 'Abu Dhabi',
+          },
+        );
+      }
+      return;
+      */ // End of testing code
+
+      // Check for auto-login data
+      setState(() {
+        _loadingText = 'Checking for saved login...';
+      });
+
+      debugPrint('🔍 Splash: Starting autologin check...');
+      final autoLoginResult = await AutoLoginService.performAutoLogin();
+
+      debugPrint(
+        '🔍 Splash: Autologin result - isValid: ${autoLoginResult.isValid}, userType: ${autoLoginResult.userType}',
+      );
+
+      if (autoLoginResult.isValid) {
         setState(() {
-          _loadingText = 'Signing you in...';
+          _loadingText = 'Welcome back, ${autoLoginResult.displayName}!';
         });
 
-        // Attempt auto-login
-        final autoLoginResult = await AuthService.autoLogin();
+        await Future.delayed(const Duration(milliseconds: 800));
 
-        if (autoLoginResult['success'] == true) {
-          // AuthService.autoLogin returns a UserData instance in 'data'
-          final userData = autoLoginResult['data'] as UserData?;
-
-          if (userData != null) {
-            // Set user data in AuthManager
-            AuthManager.setUser(userData);
-
-            setState(() {
-              _loadingText = 'Welcome back!';
-            });
-
-            // Brief delay to show welcome message
-            await Future.delayed(const Duration(milliseconds: 500));
-
-            // Ensure minimum splash time has passed
-            final elapsed = DateTime.now().difference(startTime);
-            if (elapsed < minSplashDuration) {
-              await Future.delayed(minSplashDuration - elapsed);
-            }
-
-            if (mounted) {
-              _navigateBasedOnRole(userData);
-            }
-            return;
-          }
-        } else {
-          // Auto-login failed, clear stored data and continue to login
-          await StorageService.clearAppRegId();
-          setState(() {
-            _loadingText = 'Loading...';
-          });
+        // Ensure minimum splash time has passed
+        final elapsed = DateTime.now().difference(startTime);
+        if (elapsed < minSplashDuration) {
+          await Future.delayed(minSplashDuration - elapsed);
         }
+
+        if (mounted) {
+          debugPrint('🔍 Splash: Navigating to ${autoLoginResult.homeRoute}');
+
+          // Navigate to appropriate home screen based on user type
+          if (autoLoginResult.isPainter) {
+            context.go(
+              '/painter-home',
+              extra: {
+                'isNewRegistration': false,
+                'userRole': 'painter',
+                'registeredName':
+                    autoLoginResult.userData?['userName'] ??
+                    autoLoginResult.userData?['emplName'] ??
+                    'User',
+                'registeredMobile':
+                    autoLoginResult.userData?['mobileNumber'] ??
+                    autoLoginResult.userData?['userID'] ??
+                    '',
+                'emirates': autoLoginResult.emirates,
+                'userData': autoLoginResult.userData,
+              },
+            );
+          } else if (autoLoginResult.isContractor) {
+            context.go(
+              '/contractor-home',
+              extra: {
+                'isNewRegistration': false,
+                'userRole': 'contractor',
+                'registeredName':
+                    autoLoginResult.userData?['userName'] ??
+                    autoLoginResult.userData?['emplName'] ??
+                    'User',
+                'registeredMobile':
+                    autoLoginResult.userData?['mobileNumber'] ??
+                    autoLoginResult.userData?['userID'] ??
+                    '',
+                'emirates': autoLoginResult.emirates,
+                'userData': autoLoginResult.userData,
+              },
+            );
+          } else if (autoLoginResult.userType == 'general') {
+            // For admin/general users
+            context.go('/home');
+          } else {
+            // Unknown user type, go to login
+            debugPrint('🔍 Splash: Unknown user type, going to login');
+            context.go('/login-with-password');
+          }
+        }
+        return;
+      } else {
+        debugPrint('🔍 Splash: Autologin failed - ${autoLoginResult.reason}');
+      }
+
+      // Check if user has saved credentials for login screen auto-fill
+      final hasStoredCredentials = await StorageService.hasStoredCredentials();
+
+      if (hasStoredCredentials) {
+        setState(() {
+          _loadingText = 'Loading login...';
+        });
+      } else {
+        setState(() {
+          _loadingText = 'Loading...';
+        });
       }
 
       // Ensure minimum splash time has passed
@@ -159,35 +281,6 @@ class _SplashScreenState extends State<SplashScreen>
       if (mounted) {
         context.go('/login-with-password');
       }
-    }
-  }
-
-  void _navigateBasedOnRole(UserData? userData) {
-    // Prefer the provided userData, fall back to AuthManager
-    final user = userData ?? AuthManager.currentUser;
-    if (user == null) {
-      context.go('/home');
-      return;
-    }
-
-    final userPages = user.pages;
-    final userRoles = user.roles;
-
-    // Navigate to the appropriate screen based on user's access
-    if (userPages.contains('DASHBOARD') || userRoles.contains('ADMIN')) {
-      context.go('/home');
-    } else if (userPages.contains('QUALITY_CONTROL') ||
-        userRoles.contains('QC_MANAGER')) {
-      context.go('/home');
-    } else if (userPages.contains('PRODUCTS') ||
-        userRoles.contains('PRODUCT_MANAGER')) {
-      context.go('/home');
-    } else if (userPages.contains('REGISTRATION') ||
-        userRoles.contains('REGISTRAR')) {
-      context.go('/contractor-registration');
-    } else {
-      // Default to main dashboard/home if no specific role matches
-      context.go('/home');
     }
   }
 
@@ -261,64 +354,56 @@ class _SplashScreenState extends State<SplashScreen>
                         opacity: _fadeAnimation,
                         child: ScaleTransition(
                           scale: _scaleAnimation,
-                          child: Container(
-                            width: logoSize,
-                            height: logoSize,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0xFF2C5282),
-                                  Color(0xFF2B6CB0),
-                                  Color(0xFF3182CE),
-                                ],
-                              ),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.25),
-                                  blurRadius: 24,
-                                  offset: const Offset(0, 10),
-                                ),
-                                BoxShadow(
-                                  color: const Color(
-                                    0xFF3182CE,
-                                  ).withOpacity(0.28),
-                                  blurRadius: 30,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            padding: EdgeInsets.all(
-                              (logoSize * 0.06).clamp(6, 18),
-                            ),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.08),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
+                          child: AnimatedBuilder(
+                            animation: _fadeController,
+                            builder: (context, child) {
+                              return Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: Color.lerp(
+                                      const Color(0xFF2C5282),
+                                      const Color(0xFF3182CE),
+                                      _fadeAnimation.value,
+                                    )!,
+                                    width: 3.0 + (_fadeAnimation.value * 2.0),
                                   ),
-                                ],
-                              ),
-                              child: ClipOval(
-                                child: Image.asset(
-                                  "assets/images/rak_logo.jpg",
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Icon(
-                                      Icons.business,
-                                      color: const Color(0xFF2C5282),
-                                      size: (logoSize * 0.4).clamp(40, 120),
-                                    );
-                                  },
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.15,
+                                      ),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                    BoxShadow(
+                                      color: const Color(0xFF3182CE).withValues(
+                                        alpha: 0.3 * _fadeAnimation.value,
+                                      ),
+                                      blurRadius: 15,
+                                      offset: const Offset(0, 0),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    vertical: 0.0,
+                                    horizontal: (logoSize * 0.04).clamp(4, 8),
+                                  ),
+                                  child: CombinedLogoWidget(
+                                    height: (logoSize * 1.0).clamp(120, 220),
+                                    width: (logoSize * 1.8).clamp(200, 400),
+                                    fit: BoxFit.contain,
+                                    isCircular: false,
+                                    showBorder: false,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         ),
                       ),
@@ -333,12 +418,12 @@ class _SplashScreenState extends State<SplashScreen>
                           child: Column(
                             children: [
                               Text(
-                                'RAK',
+                                'RAK & BIRLA',
                                 style: TextStyle(
-                                  fontSize: titleSize,
+                                  fontSize: titleSize * 0.85,
                                   fontWeight: FontWeight.bold,
                                   color: const Color(0xFF2C5282),
-                                  letterSpacing: 3,
+                                  letterSpacing: 2,
                                 ),
                               ),
                               SizedBox(height: titleSize * 0.12),
@@ -476,7 +561,8 @@ class ParticlePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Adaptive particle count for performance
     final baseCount = (size.shortestSide / 40).clamp(8, 28).toInt();
-    final paint = Paint()..color = const Color(0xFF3182CE).withOpacity(0.08);
+    final paint = Paint()
+      ..color = const Color(0xFF3182CE).withValues(alpha: 0.08);
 
     for (int i = 0; i < baseCount; i++) {
       final progress = (i / baseCount + animationValue) % 1.0;

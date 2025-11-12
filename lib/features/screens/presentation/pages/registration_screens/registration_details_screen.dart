@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import '../../../../../core/theme/theme.dart';
-import '../../../../../core/services/approval_service.dart';
-import '../../../../../core/models/approval_models.dart';
+import 'package:rak_app/core/models/approval_models.dart';
+import 'package:rak_app/core/services/approval_service.dart';
+import 'package:rak_app/core/theme/theme.dart';
+import 'package:rak_app/shared/widgets/custom_back_button.dart';
 
 class RegistrationDetailsScreen extends StatefulWidget {
   final String? registrationId;
@@ -16,46 +17,82 @@ class RegistrationDetailsScreen extends StatefulWidget {
 }
 
 class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
+    with TickerProviderStateMixin {
+  late AnimationController _mainController;
+  late AnimationController _fabController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  late Animation<double> _scaleAnimation;
+  final List<AnimationController> _cardControllers = [];
+  final List<Animation<double>> _cardAnimations = [];
 
   final ApprovalService _approvalService = ApprovalService();
-
   RegistrationDetails? _registrationData;
   bool _isLoading = false;
   String? _errorMessage;
-  int _selectedTabIndex = 0;
 
   @override
   void initState() {
     super.initState();
-
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+    _mainController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+    _fabController = AnimationController(
+      duration: const Duration(milliseconds: 400),
       vsync: this,
     );
 
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+      CurvedAnimation(
+        parent: _mainController,
+        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
+      ),
     );
 
     _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
+        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
           CurvedAnimation(
-            parent: _animationController,
-            curve: Curves.easeOutCubic,
+            parent: _mainController,
+            curve: const Interval(0.2, 0.7, curve: Curves.easeOutCubic),
           ),
         );
 
-    _animationController.forward();
+    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _mainController,
+        curve: const Interval(0.3, 0.8, curve: Curves.easeOutCubic),
+      ),
+    );
+
+    // Initialize card animations
+    for (int i = 0; i < 4; i++) {
+      final controller = AnimationController(
+        duration: const Duration(milliseconds: 400),
+        vsync: this,
+      );
+      final animation = CurvedAnimation(
+        parent: controller,
+        curve: Curves.easeOutCubic,
+      );
+      _cardControllers.add(controller);
+      _cardAnimations.add(animation);
+
+      // Stagger the card animations
+      Future.delayed(Duration(milliseconds: 200 + (i * 100)), () {
+        if (mounted) controller.forward();
+      });
+    }
+
+    _mainController.forward();
+    _fabController.forward();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_registrationData == null && !_isLoading && _errorMessage == null) {
+      // Add a small delay to ensure route is fully established
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
           _loadRegistrationDetails();
@@ -66,20 +103,19 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
 
   @override
   void dispose() {
-    _animationController.dispose();
+    _mainController.dispose();
+    _fabController.dispose();
+    for (var controller in _cardControllers) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
   void _loadRegistrationDetails() async {
     final identifier = widget.registrationId;
-
-    print('DEBUG SCREEN: Starting load with identifier: "$identifier"');
-
     if (identifier == null || identifier.isEmpty) {
-      print('DEBUG SCREEN: Stopping - no valid identifier');
       setState(() {
-        _errorMessage =
-            'No registration data provided. Please provide a valid registration ID, name, mobile number, email, or influencer code.';
+        _errorMessage = 'No registration data provided';
       });
       return;
     }
@@ -90,58 +126,187 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
     });
 
     try {
+      if (identifier.isEmpty) {
+        throw Exception('No identifier provided');
+      }
+
       print(
-        'DEBUG SCREEN: Looking up registration details for identifier: $identifier',
+        'DEBUG: Looking up registration details for identifier: $identifier',
       );
 
+      // Use the new dynamic lookup method
       final details = await _approvalService.getRegistrationDetailsByIdentifier(
         identifier,
       );
 
       print(
-        'DEBUG SCREEN: Successfully received details for: ${details.name} (ID: ${details.id})',
+        'DEBUG: Successfully received details for: ${details.name} (ID: ${details.id})',
       );
 
-      if (mounted) {
-        setState(() {
-          _registrationData = details;
-          _isLoading = false;
-        });
-      }
-    } catch (e, stackTrace) {
-      print('DEBUG SCREEN: Error loading details: $e');
-      print('DEBUG SCREEN: Stack trace: $stackTrace');
+      setState(() {
+        _registrationData = details;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('DEBUG: Error loading details: $e');
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
 
-      String userFriendlyMessage = 'Failed to load registration details.';
+  void _testApiWithSampleId() async {
+    print('DEBUG: Testing API with sample identifier');
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-      if (e.toString().contains('Person not found')) {
-        userFriendlyMessage =
-            'No registration found for: $identifier\n\nPlease check the identifier and try again.';
-      } else if (e.toString().contains('Registration details not found')) {
-        userFriendlyMessage =
-            'Registration details not available for this person.';
-      } else if (e.toString().contains('SocketException') ||
-          e.toString().contains('Failed host lookup')) {
-        userFriendlyMessage =
-            'Network error. Please check your internet connection.';
-      } else if (e.toString().contains('TimeoutException')) {
-        userFriendlyMessage = 'Request timed out. Please try again.';
-      } else {
-        userFriendlyMessage =
-            'Error: ${e.toString().replaceAll('Exception: ', '')}';
-      }
+    try {
+      // Test with any identifier - could be name, mobile, email, or inflCode
+      const testIdentifier =
+          'John'; // Change this to any name, mobile, email, or inflCode from your DB
+      print('DEBUG: Testing with identifier: $testIdentifier');
 
-      if (mounted) {
-        setState(() {
-          _errorMessage = userFriendlyMessage;
-          _isLoading = false;
-        });
-      }
+      final details = await _approvalService.getRegistrationDetailsByIdentifier(
+        testIdentifier,
+      );
+
+      print(
+        'DEBUG: Test successful! Received details: ${details.name} (ID: ${details.id})',
+      );
+
+      setState(() {
+        _registrationData = details;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('DEBUG: Test failed with error: $e');
+      setState(() {
+        _errorMessage = 'Test failed: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _approveRegistration() async {
+    if (_registrationData == null || _registrationData!.id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No registration ID available for approval'),
+        ),
+      );
+      return;
+    }
+
+    // Show loading indicator
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 16),
+            Text('Approving registration...'),
+          ],
+        ),
+        duration: Duration(seconds: 30),
+      ),
+    );
+
+    try {
+      // Get the inflCode for this item (same as approval dashboard)
+      final inflCode = await _approvalService.lookupInflCode(_registrationData!.id);
+      
+      // Approve the item using inflCode
+      await _approvalService.approveItem(inflCode);
+      
+      // Hide loading and show success
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${_registrationData!.name} approved successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      // Navigate back to dashboard with refresh signal
+      Navigator.pop(context, true);
+    } catch (e) {
+      // Hide loading and show error
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to approve: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _rejectRegistration(String reason) async {
+    if (_registrationData == null || _registrationData!.id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No registration ID available for rejection'),
+        ),
+      );
+      return;
+    }
+
+    // Show loading indicator
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 16),
+            Text('Rejecting registration...'),
+          ],
+        ),
+        duration: Duration(seconds: 30),
+      ),
+    );
+
+    try {
+      // Get the inflCode for this item (same as approval dashboard)
+      final inflCode = await _approvalService.lookupInflCode(_registrationData!.id);
+      
+      // Reject the item using inflCode with reason
+      await _approvalService.rejectItem(inflCode, reason: reason);
+      
+      // Hide loading and show success
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${_registrationData!.name} rejected successfully'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      // Navigate back to dashboard with refresh signal
+      Navigator.pop(context, true);
+    } catch (e) {
+      // Hide loading and show error
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to reject: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Set system UI overlay style
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -151,319 +316,257 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
     );
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      body: _isLoading
-          ? _buildLoadingState()
-          : _errorMessage != null
-          ? _buildErrorState()
-          : _registrationData == null
-          ? _buildNoDataState()
-          : _buildContentState(),
-    );
-  }
-
-  Widget _buildLoadingState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(
-            color: AppTheme.primaryColor,
-            strokeWidth: 3,
+      backgroundColor: Colors.grey.shade50,
+      appBar: _buildModernAppBar(),
+      body: FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.cyan.shade50,
+                  Colors.white,
+                  Colors.grey.shade50,
+                ],
+              ),
+            ),
+            child: _buildContent(),
           ),
-          SizedBox(height: 16.h),
-          Text(
-            'Loading registration details...',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 16.sp),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFFFFEBEE), Color(0xFFFFF3E0)],
         ),
       ),
-      child: SafeArea(
+    );
+  }
+
+  Widget _buildContent() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Simple AppBar
+            Icon(Icons.error_outline, size: 64.r, color: Colors.red.shade400),
+            SizedBox(height: 16.h),
+            Text(
+              'Error loading data',
+              style: TextStyle(
+                color: Colors.red.shade700,
+                fontSize: 18.sp,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 8.h),
             Padding(
-              padding: EdgeInsets.all(16.w),
-              child: Row(
-                children: [
-                  Text(
-                    'Error',
-                    style: TextStyle(
-                      fontSize: 20.sp,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.red.shade700,
-                    ),
-                  ),
-                ],
+              padding: EdgeInsets.symmetric(horizontal: 24.w),
+              child: Text(
+                _errorMessage!,
+                style: TextStyle(color: Colors.red.shade600, fontSize: 14.sp),
+                textAlign: TextAlign.center,
               ),
             ),
-            Expanded(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32.w),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.all(24.w),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.error_outline_rounded,
-                          size: 64.sp,
-                          color: Colors.red.shade400,
-                        ),
-                      ),
-                      SizedBox(height: 24.h),
-                      Text(
-                        'Oops! Something went wrong',
-                        style: TextStyle(
-                          fontSize: 22.sp,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.red.shade700,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      SizedBox(height: 12.h),
-                      Text(
-                        _errorMessage!,
-                        style: TextStyle(
-                          fontSize: 16.sp,
-                          color: Colors.red.shade600,
-                          height: 1.5,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      SizedBox(height: 32.h),
-                      ElevatedButton.icon(
-                        onPressed: _loadRegistrationDetails,
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Try Again'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.shade600,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 32.w,
-                            vertical: 16.h,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12.r),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            SizedBox(height: 16.h),
+            ElevatedButton(
+              onPressed: _loadRegistrationDetails,
+              child: const Text('Retry'),
             ),
+          ],
+        ),
+      );
+    }
+
+    if (_registrationData == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'No registration data available',
+              style: TextStyle(fontSize: 16.sp),
+            ),
+            SizedBox(height: 16.h),
+            Text(
+              'Registration ID: ${widget.registrationId}',
+              style: TextStyle(fontSize: 14.sp, color: Colors.grey),
+            ),
+            SizedBox(height: 16.h),
+            ElevatedButton(
+              onPressed: _loadRegistrationDetails,
+              child: const Text('Retry Load'),
+            ),
+            SizedBox(height: 8.h),
+            ElevatedButton(
+              onPressed: () => _testApiWithSampleId(),
+              child: const Text('Test API with Sample ID'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(16.w),
+      child: ScaleTransition(
+        scale: _scaleAnimation,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with animation
+            _buildAnimatedHeader(),
+            SizedBox(height: 24.h),
+            // Registration Information Card
+            _buildRegistrationInfoCard(0),
+            SizedBox(height: 16.h),
+            // Personal Details Card
+            _buildPersonalDetailsCard(1),
+            SizedBox(height: 16.h),
+            // Business Details Card
+            _buildBusinessDetailsCard(2),
+            SizedBox(height: 16.h),
+            // Bank Details Card
+            _buildBankDetailsCard(3),
+            SizedBox(height: 24.h),
+            // Action Buttons
+            _buildActionButtons(),
+            SizedBox(height: 24.h),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildNoDataState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.inbox_rounded, size: 80.sp, color: Colors.grey.shade400),
-          SizedBox(height: 16.h),
-          Text(
-            'No registration data available',
-            style: TextStyle(fontSize: 18.sp, color: Colors.grey.shade600),
-          ),
-          SizedBox(height: 8.h),
-          Text(
-            'ID: ${widget.registrationId ?? 'Not provided'}',
-            style: TextStyle(fontSize: 14.sp, color: Colors.grey.shade500),
-          ),
-          SizedBox(height: 24.h),
-          ElevatedButton(
-            onPressed: _loadRegistrationDetails,
-            child: const Text('Retry Load'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContentState() {
-    return FadeTransition(
-      opacity: _fadeAnimation,
-      child: SlideTransition(
-        position: _slideAnimation,
-        child: CustomScrollView(
-          slivers: [
-            _buildModernSliverAppBar(),
-            SliverToBoxAdapter(
-              child: Column(
-                children: [
-                  _buildHeaderCard(),
-                  _buildTabBar(),
-                  _buildTabContent(),
-                  _buildActionButtons(),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernSliverAppBar() {
-    final statusColor = _getStatusColor();
-
-    return SliverAppBar(
-      expandedHeight: 120,
-      floating: false,
-      pinned: true,
+  PreferredSizeWidget _buildModernAppBar() {
+    return AppBar(
       elevation: 0,
-      backgroundColor: Colors.white,
-      leading: Padding(
-        padding: const EdgeInsets.all(8.0),
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.cyan.shade800,
+      systemOverlayStyle: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
       ),
-      flexibleSpace: FlexibleSpaceBar(
-        titlePadding: const EdgeInsets.only(left: 56, bottom: 16),
-        title: Text(
-          'Registration Details',
-          style: TextStyle(
-            color: Colors.grey.shade900,
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        background: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [statusColor.withOpacity(0.1), Colors.white],
-            ),
-          ),
-        ),
+      leading: Navigator.of(context).canPop()
+          ? Padding(
+              padding: EdgeInsets.all(8.w),
+              child: CustomBackButton(animated: false, size: 36.r),
+            )
+          : null,
+      title: Text(
+        'Registration Details',
+        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 20.sp),
       ),
       actions: [
         IconButton(
-          icon: const Icon(Icons.refresh_rounded),
-          onPressed: _loadRegistrationDetails,
-          tooltip: 'Refresh',
+          icon: const Icon(Icons.refresh),
+          onPressed: () {
+            print('DEBUG: Manual refresh triggered');
+            _loadRegistrationDetails();
+          },
         ),
-        const SizedBox(width: 8),
       ],
     );
   }
 
-  Widget _buildHeaderCard() {
-    final statusColor = _getStatusColor();
-    final data = _registrationData!;
+  Widget _buildAnimatedHeader() {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    final statusColor = _registrationData!.status == 'Pending'
+        ? Colors.orange
+        : _registrationData!.status == 'Approved'
+        ? Colors.green
+        : Colors.red;
 
     return Container(
-      margin: const EdgeInsets.all(16),
-      child: Material(
-        borderRadius: BorderRadius.circular(20),
-        elevation: 4,
-        shadowColor: statusColor.withOpacity(0.2),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [statusColor.withOpacity(0.8), statusColor],
-            ),
+      width: double.infinity,
+      padding: EdgeInsets.all(20.w),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.cyan.shade700, Colors.cyan.shade500],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.cyan.withOpacity(0.2),
+            blurRadius: 15.r,
+            offset: const Offset(0, 10),
           ),
-          padding: const EdgeInsets.all(24),
-          child: Row(
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Avatar
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.3),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                ),
-                child: Center(
-                  child: Text(
-                    data.avatar.isNotEmpty ? data.avatar : data.name[0],
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 20),
-              // Info
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      data.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
+                    TweenAnimationBuilder<double>(
+                      tween: Tween<double>(begin: 0, end: 1),
+                      duration: const Duration(milliseconds: 800),
+                      curve: Curves.easeOut,
+                      builder: (context, value, child) {
+                        return Transform.translate(
+                          offset: Offset(0, 30 * (1 - value)),
+                          child: Opacity(opacity: value, child: child),
+                        );
+                      },
+                      child: Text(
+                        'Registration Details',
+                        style: TextStyle(
+                          fontSize: 24.sp,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      data.type,
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8.h),
                     Row(
                       children: [
+                        TweenAnimationBuilder<double>(
+                          tween: Tween<double>(begin: 0, end: 1),
+                          duration: const Duration(milliseconds: 800),
+                          curve: Curves.easeOut,
+                          builder: (context, value, child) {
+                            return Transform.translate(
+                              offset: Offset(0, 30 * (1 - value)),
+                              child: Opacity(opacity: value, child: child),
+                            );
+                          },
+                          child: Text(
+                            'ID: ${_registrationData!.id}',
+                            style: TextStyle(
+                              fontSize: 14.sp,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 16.w),
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8.w,
+                            vertical: 4.h,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.25),
-                            borderRadius: BorderRadius.circular(20),
+                            color: statusColor.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12.r),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                _getStatusIcon(),
-                                size: 14,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                data.status,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            _registrationData!.status,
+                            style: TextStyle(
+                              fontSize: 12.sp,
+                              fontWeight: FontWeight.bold,
+                              color: statusColor,
+                            ),
                           ),
                         ),
                       ],
@@ -471,316 +574,296 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
                   ],
                 ),
               ),
-              // ID Badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.25),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      'ID',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      data.id,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 800),
+                curve: Curves.easeOut,
+                builder: (context, value, child) {
+                  return Transform.scale(scale: value, child: child);
+                },
+                child: Container(
+                  width: 50.r,
+                  height: 50.r,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    _registrationData!.type == 'Contractor'
+                        ? Icons.business_rounded
+                        : Icons.format_paint_rounded,
+                    color: Colors.white,
+                    size: 24.r,
+                  ),
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTabBar() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade200,
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          _buildTab('Overview', Icons.info_outline_rounded, 0),
-          _buildTab('Personal', Icons.person_outline_rounded, 1),
-          _buildTab('Business', Icons.business_outlined, 2),
-          _buildTab('Banking', Icons.account_balance_outlined, 3),
         ],
       ),
     );
   }
 
-  Widget _buildTab(String label, IconData icon, int index) {
-    final isSelected = _selectedTabIndex == index;
+  Widget _buildRegistrationInfoCard(int cardIndex) {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
 
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _selectedTabIndex = index;
-          });
-        },
-        borderRadius: BorderRadius.circular(16),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: isSelected ? AppTheme.primaryColor : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 20,
-                color: isSelected ? Colors.white : Colors.grey.shade600,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                  color: isSelected ? Colors.white : Colors.grey.shade600,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTabContent() {
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
+    return ScaleTransition(
+      scale: _cardAnimations[cardIndex],
       child: Container(
-        key: ValueKey(_selectedTabIndex),
-        margin: const EdgeInsets.all(16),
-        child: _selectedTabIndex == 0
-            ? _buildOverviewTab()
-            : _selectedTabIndex == 1
-            ? _buildPersonalTab()
-            : _selectedTabIndex == 2
-            ? _buildBusinessTab()
-            : _buildBankingTab(),
-      ),
-    );
-  }
-
-  Widget _buildOverviewTab() {
-    final data = _registrationData!;
-    return Column(
-      children: [
-        _buildInfoCard(
-          'Registration Information',
-          Icons.app_registration_rounded,
-          Colors.blue,
-          [
-            _buildInfoRow('Registration ID', data.id, Icons.tag),
-            _buildInfoRow('Full Name', data.name, Icons.person),
-            _buildInfoRow('Type', data.type, Icons.category),
-            _buildInfoRow('Mobile', data.mobile, Icons.phone),
-            _buildInfoRow('Email', data.email, Icons.email),
-            _buildInfoRow(
-              'Submitted Date',
-              data.submittedDate,
-              Icons.calendar_today,
-            ),
-            _buildInfoRow(
-              'Status',
-              data.status,
-              Icons.circle,
-              statusColor: _getStatusColor(),
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 10.r,
+              offset: const Offset(0, 5),
             ),
           ],
         ),
-      ],
-    );
-  }
-
-  Widget _buildPersonalTab() {
-    final data = _registrationData!;
-    return Column(
-      children: [
-        _buildInfoCard(
-          'Personal Details',
-          Icons.person_pin_rounded,
-          Colors.purple,
-          [
-            _buildInfoRow('Full Name', data.fullName, Icons.badge),
-            _buildInfoRow('Address', data.address, Icons.location_on),
-            _buildInfoRow('Reference', data.reference, Icons.link),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBusinessTab() {
-    final data = _registrationData!;
-    return Column(
-      children: [
-        _buildInfoCard(
-          'Business Details',
-          Icons.business_center_rounded,
-          Colors.green,
-          [
-            _buildInfoRow('Company Name', data.companyName, Icons.business),
-            _buildInfoRow('License Number', data.licenseNumber, Icons.badge),
-            _buildInfoRow('TRN Number', data.trnNumber, Icons.numbers),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBankingTab() {
-    final data = _registrationData!;
-    return Column(
-      children: [
-        _buildInfoCard(
-          'Banking Details',
-          Icons.account_balance_wallet_rounded,
-          Colors.orange,
-          [
-            _buildInfoRow('Account Holder', data.accountHolder, Icons.person),
-            _buildInfoRow('IBAN', data.iban, Icons.credit_card),
-            _buildInfoRow('Bank Name', data.bankName, Icons.account_balance),
-            _buildInfoRow('Branch', data.branch, Icons.location_city),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildInfoCard(
-    String title,
-    IconData icon,
-    Color color,
-    List<Widget> children,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(20),
-                topRight: Radius.circular(20),
-              ),
-            ),
-            child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  width: 36.r,
+                  height: 36.r,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.cyan.withOpacity(0.1),
+                    shape: BoxShape.circle,
                   ),
-                  child: Icon(icon, color: color, size: 24),
+                  child: Icon(
+                    Icons.info_rounded,
+                    color: Colors.cyan.shade700,
+                    size: 18.r,
+                  ),
                 ),
-                const SizedBox(width: 16),
+                SizedBox(width: 12.w),
                 Text(
-                  title,
+                  'Registration Information',
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 16.sp,
                     fontWeight: FontWeight.bold,
-                    color: color.withOpacity(0.9),
+                    color: Colors.black87,
                   ),
                 ),
               ],
             ),
-          ),
-          // Content
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(children: children),
-          ),
-        ],
+            SizedBox(height: 16.h),
+            _buildInfoRow('Registration ID:', _registrationData!.id),
+            _buildInfoRow('Name:', _registrationData!.name),
+            _buildInfoRow('Type:', _registrationData!.type),
+            _buildInfoRow('Mobile:', _registrationData!.mobile),
+            _buildInfoRow('Submitted Date:', _registrationData!.submittedDate),
+            _buildInfoRow('Status:', _registrationData!.status),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildInfoRow(
-    String label,
-    String value,
-    IconData icon, {
-    Color? statusColor,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: statusColor ?? Colors.grey.shade400),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildPersonalDetailsCard(int cardIndex) {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    return ScaleTransition(
+      scale: _cardAnimations[cardIndex],
+      child: Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 10.r,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
+                Container(
+                  width: 36.r,
+                  height: 36.r,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.person_rounded,
+                    color: Colors.blue.shade700,
+                    size: 18.r,
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(width: 12.w),
                 Text(
-                  value.isEmpty ? 'Not provided' : value,
+                  'Personal Details',
                   style: TextStyle(
-                    fontSize: 15,
-                    color: value.isEmpty
-                        ? Colors.grey.shade400
-                        : Colors.grey.shade800,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
                   ),
                 ),
               ],
+            ),
+            SizedBox(height: 16.h),
+            _buildInfoRow('Full Name:', _registrationData!.fullName),
+            _buildInfoRow('Address:', _registrationData!.address),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBusinessDetailsCard(int cardIndex) {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    return ScaleTransition(
+      scale: _cardAnimations[cardIndex],
+      child: Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 10.r,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36.r,
+                  height: 36.r,
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.business_rounded,
+                    color: Colors.green.shade700,
+                    size: 18.r,
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Text(
+                  'Business Details',
+                  style: TextStyle(
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 16.h),
+            _buildInfoRow('Company Name:', _registrationData!.companyName),
+            _buildInfoRow('License Number:', _registrationData!.licenseNumber),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBankDetailsCard(int cardIndex) {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    return ScaleTransition(
+      scale: _cardAnimations[cardIndex],
+      child: Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 10.r,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36.r,
+                  height: 36.r,
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.account_balance_rounded,
+                    color: Colors.purple.shade700,
+                    size: 18.r,
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Text(
+                  'Bank Details',
+                  style: TextStyle(
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 16.h),
+            _buildInfoRow('Account Holder:', _registrationData!.accountHolder),
+            _buildInfoRow('IBAN:', _registrationData!.iban),
+            _buildInfoRow('Bank Name:', _registrationData!.bankName),
+            _buildInfoRow('Branch:', _registrationData!.branch),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 12.h),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120.w,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14.sp,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(fontSize: 14.sp, color: Colors.black87),
             ),
           ),
         ],
@@ -789,53 +872,70 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
   }
 
   Widget _buildActionButtons() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _showApproveDialog(context),
-              icon: const Icon(Icons.check_circle_rounded, size: 22),
-              label: const Text(
-                'Approve',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade600,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                elevation: 4,
-                shadowColor: Colors.green.withOpacity(0.4),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton(
+            onPressed: () {
+              _showApproveDialog(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+              elevation: 4,
+              padding: EdgeInsets.symmetric(vertical: 12.h),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8.r),
               ),
             ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _showRejectDialog(context),
-              icon: const Icon(Icons.cancel_rounded, size: 22),
-              label: const Text(
-                'Reject',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade600,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                elevation: 4,
-                shadowColor: Colors.red.withOpacity(0.4),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.check_circle_rounded),
+                SizedBox(width: 8.w),
+                Text(
+                  'Approve',
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+        SizedBox(width: 16.w),
+        Expanded(
+          child: ElevatedButton(
+            onPressed: () {
+              _showRejectDialog(context);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              elevation: 4,
+              padding: EdgeInsets.symmetric(vertical: 12.h),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8.r),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.cancel_rounded),
+                SizedBox(width: 8.w),
+                Text(
+                  'Reject',
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -843,135 +943,96 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
         child: Container(
-          padding: const EdgeInsets.all(32),
+          padding: EdgeInsets.all(24.w),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(20),
+                width: 60.r,
+                height: 60.r,
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
+                  color: Colors.green.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.check_circle_rounded,
-                  size: 56,
-                  color: Colors.green.shade600,
+                  size: 30.r,
+                  color: Colors.green,
                 ),
               ),
-              const SizedBox(height: 24),
-              const Text(
+              SizedBox(height: 16.h),
+              Text(
                 'Approve Registration',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               Text(
                 'Are you sure you want to approve this registration?',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade600,
-                  height: 1.5,
-                ),
                 textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14.sp),
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: 8.h),
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
                 decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(16),
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12.r),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      Icons.star_rounded,
-                      color: Colors.amber.shade600,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '100 bonus points will be awarded',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.green.shade700,
+                    Icon(Icons.star_rounded, color: Colors.amber, size: 16.r),
+                    SizedBox(width: 4.w),
+                    Flexible(
+                      child: Text(
+                        '100 bonus points will be awarded upon approval.',
+                        style: TextStyle(
+                          fontSize: 12.sp,
+                          fontWeight: FontWeight.w500,
+                          color: const Color.fromARGB(255, 19, 149, 255),
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: 24.h),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        side: BorderSide(color: Colors.grey.shade300),
+                        padding: EdgeInsets.symmetric(vertical: 12.h),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8.r),
                         ),
                       ),
-                      child: Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
+                      child: Text('Cancel', style: AppTheme.body),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16.w),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () async {
                         Navigator.pop(context);
-                        if (_registrationData != null &&
-                            _registrationData!.id.isNotEmpty) {
-                          try {
-                            await _approvalService.approveItem(
-                              _registrationData!.id,
-                            );
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${_registrationData!.name} approved successfully',
-                                ),
-                                backgroundColor: Colors.green.shade600,
-                              ),
-                            );
-                            Navigator.pop(context, true);
-                          } catch (e) {
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to approve: $e'),
-                                backgroundColor: Colors.red.shade600,
-                              ),
-                            );
-                          }
-                        }
+                        await _approveRegistration();
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade600,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 12.h),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8.r),
                         ),
                       ),
-                      child: const Text(
+                      child: Text(
                         'Approve',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                        style: AppTheme.success.copyWith(color: Colors.white),
                       ),
                     ),
                   ),
@@ -990,131 +1051,81 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
         child: Container(
-          padding: const EdgeInsets.all(32),
+          padding: EdgeInsets.all(24.w),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(20),
+                width: 60.r,
+                height: 60.r,
                 decoration: BoxDecoration(
-                  color: Colors.red.shade50,
+                  color: Colors.red.withOpacity(0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   Icons.cancel_rounded,
-                  size: 56,
-                  color: Colors.red.shade600,
+                  size: 30.r,
+                  color: Colors.red,
                 ),
               ),
-              const SizedBox(height: 24),
-              const Text(
+              SizedBox(height: 16.h),
+              Text(
                 'Reject Registration',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               Text(
                 'Please provide a reason for rejection:',
-                style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
                 textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 14.sp),
               ),
-              const SizedBox(height: 24),
+              SizedBox(height: 16.h),
               TextField(
                 controller: commentController,
                 decoration: InputDecoration(
-                  hintText: 'Enter rejection reason...',
-                  filled: true,
-                  fillColor: Colors.grey.shade50,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8.r),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey.shade300),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: Colors.red.shade400,
-                      width: 2,
-                    ),
-                  ),
+                  hintText: 'Enter rejection reason...',
+                  contentPadding: EdgeInsets.all(12.w),
                 ),
-                maxLines: 4,
+                maxLines: 3,
               ),
-              const SizedBox(height: 32),
+              SizedBox(height: 24.h),
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        side: BorderSide(color: Colors.grey.shade300),
+                        padding: EdgeInsets.symmetric(vertical: 12.h),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8.r),
                         ),
                       ),
-                      child: Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
+                      child: const Text('Cancel'),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 16.w),
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () async {
                         Navigator.pop(context);
-                        if (_registrationData != null &&
-                            _registrationData!.id.isNotEmpty) {
-                          try {
-                            await _approvalService.rejectItem(
-                              _registrationData!.id,
-                              reason: commentController.text,
-                            );
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${_registrationData!.name} rejected successfully',
-                                ),
-                                backgroundColor: Colors.red.shade600,
-                              ),
-                            );
-                            Navigator.pop(context, true);
-                          } catch (e) {
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Failed to reject: $e'),
-                                backgroundColor: Colors.red.shade600,
-                              ),
-                            );
-                          }
-                        }
+                        await _rejectRegistration(commentController.text);
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(vertical: 12.h),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8.r),
                         ),
                       ),
-                      child: const Text(
-                        'Reject',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
+                      child: const Text('Reject'),
                     ),
                   ),
                 ],
@@ -1124,33 +1135,5 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
         ),
       ),
     );
-  }
-
-  Color _getStatusColor() {
-    if (_registrationData == null) return Colors.grey;
-    switch (_registrationData!.status.toLowerCase()) {
-      case 'pending':
-        return Colors.orange;
-      case 'approved':
-        return Colors.green;
-      case 'rejected':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
-  IconData _getStatusIcon() {
-    if (_registrationData == null) return Icons.help_outline;
-    switch (_registrationData!.status.toLowerCase()) {
-      case 'pending':
-        return Icons.pending_outlined;
-      case 'approved':
-        return Icons.check_circle_outline;
-      case 'rejected':
-        return Icons.cancel_outlined;
-      default:
-        return Icons.help_outline;
-    }
   }
 }

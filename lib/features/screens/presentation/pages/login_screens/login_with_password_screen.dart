@@ -1,11 +1,15 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:rak_app/core/services/auth_service.dart';
+import 'package:rak_app/core/services/autologin_service.dart';
 import 'package:rak_app/core/models/auth_models.dart';
 import 'package:rak_app/core/services/storage_service.dart';
 import 'package:rak_app/shared/widgets/custom_back_button.dart';
+import 'package:rak_app/shared/widgets/combined_logo_widget.dart';
 
 class LoginWithPasswordScreen extends StatefulWidget {
   const LoginWithPasswordScreen({super.key});
@@ -98,8 +102,8 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
       final userID = _userIdController.text.trim();
       final password = _passwordController.text.trim();
 
-  // Shortcut: local dummy admin login (no network)
-  if (userID == 'admin' && password == 'admin07') {
+      // Shortcut: local dummy admin login (no network)
+      if (userID == 'admin' && password == 'admin07') {
         // Create minimal UserData and set as current user
         final dummyUser = UserData(
           emplName: 'Administrator',
@@ -111,6 +115,12 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
         );
 
         AuthManager.setUser(dummyUser);
+
+        // Save autologin data for admin
+        await AutoLoginService.saveAutoLoginAfterLogin(
+          userData: dummyUser,
+          userType: 'general', // Admin uses general home screen
+        );
 
         if (mounted) {
           setState(() => _isLoading = false);
@@ -143,8 +153,26 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
           }
 
           AuthManager.setUser(userData);
-          // After successful auth, go to the home screen
-          context.go('/home');
+
+          // Determine user type and save autologin data
+          final userType = AutoLoginService.determineUserType(userData);
+          await AutoLoginService.saveAutoLoginAfterLogin(
+            userData: userData,
+            userType: userType,
+          );
+
+          // Navigate to appropriate home screen based on user type
+          final homeRoute = AutoLoginService.getHomeRouteForUserType(userType);
+          context.go(
+            homeRoute,
+            extra: {
+              'isNewRegistration': false,
+              'userRole': userType,
+              'registeredName': userData.emplName,
+              'emirates': userData.areaCode,
+              'userData': userData.toJson(),
+            },
+          );
         } else {
           final errorMessage =
               result['error'] ?? 'Login failed. Please try again.';
@@ -254,49 +282,44 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
         return Transform.scale(
           scale: 0.8 + (0.2 * value),
           child: Container(
-            height: size,
-            width: size,
             decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Color.lerp(
+                  const Color(0xFF2C5282),
+                  const Color(0xFF3182CE),
+                  value,
+                )!,
+                width: 3.0 + (value * 2.0),
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.blue.withOpacity(0.2),
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+                BoxShadow(
+                  color: const Color(0xFF3182CE).withValues(alpha: 0.3 * value),
                   blurRadius: 15,
-                  spreadRadius: 3,
+                  offset: const Offset(0, 0),
                 ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: ClipOval(
-                child: Image.asset(
-                  'assets/images/rak_logo.jpg',
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              padding: EdgeInsets.symmetric(
+                vertical: 0.0,
+                horizontal: (size * 0.04).clamp(4, 8),
+              ),
+              child: CombinedLogoWidget(
+                  height: (size * 1.0).clamp(120, 220),
+                  width: (size * 1.8).clamp(200, 400),
                   fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.blue.shade700, Colors.blue.shade500],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          'RAK',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: size * 0.28,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                  isCircular: false,
+                  showBorder: false,
               ),
             ),
           ),
@@ -385,15 +408,15 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
                       elevation: isDark ? 0 : 8,
                       shadowColor: isDark
                           ? Colors.transparent
-                          : Colors.blue.withOpacity(0.1),
+                          : Colors.blue.withValues(alpha: 0.1),
                       color: isDark
-                          ? const Color(0xFF1E1E1E).withOpacity(0.95)
-                          : Colors.white.withOpacity(0.98),
+                          ? const Color(0xFF1E1E1E).withValues(alpha: 0.95)
+                          : Colors.white.withValues(alpha: 0.98),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(24),
                         side: isDark
                             ? BorderSide(
-                                color: Colors.white.withOpacity(0.1),
+                                color: Colors.white.withValues(alpha: 0.1),
                                 width: 1,
                               )
                             : BorderSide.none,
@@ -480,6 +503,17 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
             isDark: isDark,
             delay: const Duration(milliseconds: 750),
           ),
+          SizedBox(height: isSmallScreen ? 12.0 : 16.0),
+          ModernButton(
+            text: 'Login with OTP',
+            isLoading: false,
+            onPressed: () {
+              context.push('/login-with-otp');
+            },
+            isPrimary: false,
+            isDark: isDark,
+            delay: const Duration(milliseconds: 750),
+          ),
         ],
       ),
     );
@@ -554,31 +588,6 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
                         : Colors.grey.shade600,
                   ),
                   overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const Spacer(),
-              Flexible(
-                child: TextButton(
-                  onPressed: () {
-                    _showErrorSnackBar('Forgot password will be implemented');
-                  },
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isSmallScreen ? 4 : 8,
-                      vertical: 4,
-                    ),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(
-                    'Forgot Password?',
-                    style: TextStyle(
-                      fontSize: fontSize,
-                      color: Colors.blue.shade600,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
                 ),
               ),
             ],

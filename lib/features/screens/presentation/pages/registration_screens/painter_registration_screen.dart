@@ -1,9 +1,20 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import 'dart:io';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:rak_app/core/routes/route_names.dart';
+import '../../../../../core/services/emirates_id_ocr_service.dart';
+import '../../../../../core/services/bank_details_ocr_service.dart';
+import '../../../../../core/services/painter_service.dart';
+import '../../../../../core/services/autologin_service.dart';
+import '../../../../../core/services/image_upload_service.dart';
+import '../../../../../core/services/sms_uae_service.dart';
+import '../../../../../core/config/api_config.dart';
+import '../../../../../core/models/painter_models.dart';
 import '../../../../../shared/widgets/custom_back_button.dart';
 import '../../../../../shared/widgets/file_upload_widget.dart';
 import '../../../../../shared/widgets/modern_dropdown.dart';
@@ -25,7 +36,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
 
-  // Current step state (1 = Personal, 2 = Emirates ID, 3 = Bank)
+  // Current step state (1 = Mobile/OTP, 2 = Emirates ID, 3 = Personal, 4 = Bank)
   int _currentStep = 1;
 
   // Form controllers
@@ -33,6 +44,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   final TextEditingController _middleNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _mobileController = TextEditingController();
+  final TextEditingController _otpController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _emiratesIdController = TextEditingController();
   final TextEditingController _nameOfHolderController = TextEditingController();
@@ -50,14 +62,39 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   final TextEditingController _branchNameController = TextEditingController();
   final TextEditingController _bankAddressController = TextEditingController();
 
-  // File paths for Emirates ID images
+  // File paths for uploads
+  String? _profilePhotoPath;
   String? _emiratesIdFrontFile;
   String? _emiratesIdBackFile;
+  String? _bankDocumentFile;
 
-  // OCR processing flag
+  // OCR processing flags
   bool _isProcessingOcr = false;
+  bool _isProcessingBankOcr = false;
+  bool _isSubmitting = false;
+
+  // Mobile validation state
+  bool _isCheckingMobile = false;
+  String? _mobileValidationError;
+
+  // OTP state
+  bool _showOtpField = false;
+  bool _isOtpVerified = false;
+  bool _isSendingOtp = false;
+  Timer? _resendTimer;
+  SharedPreferences? _prefs;
+
+  // OTP constants
+  static const _otpKeyCode = 'painter_otp_code';
+  static const _otpKeyMobile = 'painter_otp_mobile';
+  static const _otpKeyExpiry = 'painter_otp_expiry';
+  static const _otpKeyCooldown = 'painter_otp_cooldown';
 
   String? _selectedEmirate;
+
+  // OCR service instances
+  final EmiratesIdOcrService _ocrService = EmiratesIdOcrService();
+  final BankDetailsOcrService _bankOcrService = BankDetailsOcrService();
 
   @override
   void initState() {
@@ -91,16 +128,23 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     );
     _mainController.forward();
     _fabController.forward();
+
+    // Add listener for mobile number validation
+    _mobileController.addListener(_onMobileNumberChanged);
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
+    _resendTimer?.cancel();
+    _mobileController.removeListener(_onMobileNumberChanged);
     _mainController.dispose();
     _fabController.dispose();
     _firstNameController.dispose();
     _middleNameController.dispose();
     _lastNameController.dispose();
     _mobileController.dispose();
+    _otpController.dispose();
     _addressController.dispose();
     _emiratesIdController.dispose();
     _nameOfHolderController.dispose();
@@ -250,16 +294,18 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         children: [
           Row(
             children: [
-              _buildProgressStep(1, 'Personal', _currentStep >= 1),
+              _buildProgressStep(1, 'Mobile', _currentStep >= 1),
               _buildProgressLine(_currentStep >= 2),
               _buildProgressStep(2, 'Emirates ID', _currentStep >= 2),
               _buildProgressLine(_currentStep >= 3),
-              _buildProgressStep(3, 'Bank', _currentStep >= 3),
+              _buildProgressStep(3, 'Personal', _currentStep >= 3),
+              _buildProgressLine(_currentStep >= 4),
+              _buildProgressStep(4, 'Bank', _currentStep >= 4),
             ],
           ),
           SizedBox(height: 12.h),
           Text(
-            'Step $_currentStep of 3: ${_getStepTitle()}',
+            'Step $_currentStep of 4: ${_getStepTitle()}',
             style: TextStyle(
               color: Colors.grey.shade600,
               fontSize: 14.sp,
@@ -274,10 +320,12 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   String _getStepTitle() {
     switch (_currentStep) {
       case 1:
-        return 'Personal Details';
+        return 'Mobile Verification';
       case 2:
         return 'Emirates ID Verification';
       case 3:
+        return 'Personal Details';
+      case 4:
         return 'Bank Details';
       default:
         return '';
@@ -345,16 +393,19 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
 
     switch (_currentStep) {
       case 1:
-        currentSection = _buildPersonalDetailsSection();
+        currentSection = _buildMobileVerificationSection();
         break;
       case 2:
         currentSection = _buildEmiratesIdSection();
         break;
       case 3:
+        currentSection = _buildPersonalDetailsSection();
+        break;
+      case 4:
         currentSection = _buildBankDetailsSection();
         break;
       default:
-        currentSection = _buildPersonalDetailsSection();
+        currentSection = _buildMobileVerificationSection();
     }
 
     return Column(
@@ -410,7 +461,18 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         Expanded(
           child: ElevatedButton(
             onPressed: () {
-              if (_currentStep < 3) {
+              if (_currentStep == 1 && !_isOtpVerified) {
+                // Cannot proceed without OTP verification
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Please verify your mobile number with OTP first'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+                return;
+              }
+              
+              if (_currentStep < 4) {
                 setState(() {
                   _currentStep++;
                 });
@@ -432,7 +494,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  _currentStep < 3 ? 'Next' : 'Submit Registration',
+                  _currentStep < 4 ? 'Next' : 'Submit Registration',
                   style: TextStyle(
                     fontSize: 16.sp,
                     fontWeight: FontWeight.w600,
@@ -440,7 +502,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                 ),
                 SizedBox(width: 8.w),
                 Icon(
-                  _currentStep < 3
+                  _currentStep < 4
                       ? Icons.arrow_forward_rounded
                       : Icons.check_circle_rounded,
                 ),
@@ -453,25 +515,684 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   }
 
   void _handleSubmit() {
-    // TODO: Implement form submission
+    // New implementation: validate, build request, call API and show feedback
+    if (_isSubmitting) return;
+
+    // Basic validations
+    final firstNameErr = PainterService.validateName(
+      _firstNameController.text,
+      'First name',
+    );
+    if (firstNameErr != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(firstNameErr)));
+      return;
+    }
+
+    final lastNameErr = PainterService.validateName(
+      _lastNameController.text,
+      'Last name',
+    );
+    if (lastNameErr != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(lastNameErr)));
+      return;
+    }
+
+    final mobileErr = PainterService.validateMobileNumber(
+      _mobileController.text,
+    );
+    if (mobileErr != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(mobileErr)));
+      return;
+    }
+
+    // Check if there's a real-time validation error
+    if (_mobileValidationError != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_mobileValidationError!)));
+      return;
+    }
+
+    final emiratesErr = PainterService.validateEmiratesId(
+      _emiratesIdController.text,
+    );
+    if (emiratesErr != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(emiratesErr)));
+      return;
+    }
+
+    // Check for duplicate mobile number before proceeding
+    _checkDuplicateMobileAndProceed();
+  }
+
+  void _checkDuplicateMobileAndProceed() async {
+    if (_isSubmitting) return;
+
+    setState(() => _isSubmitting = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    // Show checking message
+    final checkingSnackBar = SnackBar(
+      content: Row(
+        children: [
+          const SizedBox(width: 4),
+          const CircularProgressIndicator(),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('Checking mobile number...')),
+        ],
+      ),
+      behavior: SnackBarBehavior.floating,
+    );
+    messenger.showSnackBar(checkingSnackBar);
+
+    try {
+      // Check for duplicate mobile number
+      final duplicateCheck = await PainterService.checkMobileDuplicate(
+        _mobileController.text,
+      );
+
+      messenger.hideCurrentSnackBar();
+
+      if (!duplicateCheck.success) {
+        // API call failed, show error but allow to proceed
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(duplicateCheck.message),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        // Continue with registration despite check failure
+        _proceedWithRegistration();
+        return;
+      }
+
+      if (duplicateCheck.exists) {
+        // Mobile number already exists, prevent registration
+        messenger.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    duplicateCheck.message.isNotEmpty
+                        ? duplicateCheck.message
+                        : 'This mobile number is already registered. Please use a different number.',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        setState(() => _isSubmitting = false);
+        return;
+      }
+
+      // Mobile number is available, proceed with registration
+      _proceedWithRegistration();
+    } catch (e) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Error checking mobile number: ${e.toString()}'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      // Continue with registration despite check failure
+      _proceedWithRegistration();
+    }
+  }
+
+  void _proceedWithRegistration() async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    // Build the registration request from form fields
+    final req = PainterRegistrationRequest(
+      firstName: _firstNameController.text.trim(),
+      middleName: _middleNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
+      mobileNumber: PainterService.formatMobileNumber(_mobileController.text),
+      address: _addressController.text.trim(),
+      area: '',
+      emirates: _selectedEmirate ?? '',
+      password:
+          '', // Password not collected here; backend should handle or send temporary value
+      emiratesIdNumber: _emiratesIdController.text.trim(),
+      idName: _nameOfHolderController.text.trim(),
+      dateOfBirth: _dobController.text.trim(),
+      nationality: _nationalityController.text.trim(),
+      companyDetails: _companyDetailsController.text.trim(),
+      issueDate: _issueDateController.text.trim(),
+      expiryDate: _expiryDateController.text.trim(),
+      occupation: _occupationController.text.trim(),
+      accountHolderName: _accountHolderController.text.trim(),
+      ibanNumber: PainterService.formatIban(_ibanController.text),
+      bankName: _bankNameController.text.trim(),
+      branchName: _branchNameController.text.trim(),
+      bankAddress: _bankAddressController.text.trim(),
+    );
+
+    // Show registration progress
+    final loading = SnackBar(
+      content: Row(
+        children: [
+          const SizedBox(width: 4),
+          const CircularProgressIndicator(),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('Registering painter...')),
+        ],
+      ),
+      behavior: SnackBarBehavior.floating,
+    );
+    messenger.showSnackBar(loading);
+
+    try {
+      final resp = await PainterService.registerPainter(req);
+      messenger.hideCurrentSnackBar();
+
+      if (resp.success) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    resp.message.isNotEmpty
+                        ? resp.message
+                        : 'Registration successful',
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+
+        // Upload files to server after successful registration
+        await _uploadFilesToServer();
+
+        // Save autologin data for future automatic login
+        final registeredName =
+            ('${_firstNameController.text} ${_lastNameController.text}').trim();
+        final userId = _mobileController.text.trim(); // Using mobile as userId
+
+        await AutoLoginService.saveAutoLoginAfterRegistration(
+          userId: userId,
+          userType: 'painter',
+          userName: registeredName,
+          emirates: _selectedEmirate ?? '',
+          influencerCode: resp.influencerCode,
+          additionalData: {
+            'mobileNumber': PainterService.formatMobileNumber(
+              _mobileController.text,
+            ),
+            'emiratesId': _emiratesIdController.text.trim(),
+            'nationality': _nationalityController.text.trim(),
+            'occupation': _occupationController.text.trim(),
+          },
+        );
+
+        // Navigate to painter home after short delay so user sees the success snackbar
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) {
+          // Pass isNewRegistration so home screen can show congratulations dialog
+          context.go(
+            RouteNames.painterHome,
+            extra: {
+              'isNewRegistration': true,
+              'userRole': 'painter',
+              'registeredName': registeredName,
+              'emirates': _selectedEmirate ?? '',
+              'influencerCode': resp.influencerCode,
+            },
+          );
+        }
+      } else {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              resp.message.isNotEmpty ? resp.message : 'Registration failed',
+            ),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Registration failed: ${e.toString()}'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  // ========= OTP Helper Methods =========
+  Future<void> _initPrefs() async {
+    _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  String _genOtp6() {
+    final rnd = Random.secure();
+    return (rnd.nextInt(900000) + 100000).toString();
+  }
+
+  String _normalizeForPrefs(String raw) {
+    var d = raw.replaceAll(RegExp(r'\D'), '');
+    if (d.startsWith('971')) return d;
+    return '971$d';
+  }
+
+  List<String> _getAllMobileFormats(String rawMobile) {
+    final cleaned = rawMobile.replaceAll(RegExp(r'[^0-9]'), '');
+    final formats = <String>[];
+
+    if (cleaned.isNotEmpty) {
+      formats.add(cleaned);
+    }
+
+    if (cleaned.length == 9) {
+      formats.add('971$cleaned');
+    }
+
+    if (cleaned.startsWith('971') && cleaned.length == 12) {
+      formats.add(cleaned.substring(3));
+    }
+
+    if (cleaned.length > 9) {
+      final last9 = cleaned.substring(cleaned.length - 9);
+      formats.add(last9);
+      formats.add('971$last9');
+    }
+
+    final uniqueFormats = <String>[];
+    for (final format in formats) {
+      if (!uniqueFormats.contains(format)) {
+        uniqueFormats.add(format);
+      }
+    }
+
+    return uniqueFormats;
+  }
+
+  Future<void> _saveOtpLocally({
+    required String mobile,
+    required String otp,
+  }) async {
+    await _initPrefs();
+    final expiry = DateTime.now().add(ApiConfig.otpTtl).millisecondsSinceEpoch;
+    await _prefs!.setString(_otpKeyCode, otp);
+    await _prefs!.setString(_otpKeyMobile, mobile);
+    await _prefs!.setInt(_otpKeyExpiry, expiry);
+  }
+
+  Future<Map<String, dynamic>?> _loadOtp() async {
+    await _initPrefs();
+    final otp = _prefs!.getString(_otpKeyCode);
+    final mobile = _prefs!.getString(_otpKeyMobile);
+    final expiry = _prefs!.getInt(_otpKeyExpiry);
+    if (otp == null || mobile == null || expiry == null) return null;
+    return {'otp': otp, 'mobile': mobile, 'expiry': expiry};
+  }
+
+  Future<void> _clearOtp() async {
+    await _initPrefs();
+    await _prefs!.remove(_otpKeyCode);
+    await _prefs!.remove(_otpKeyMobile);
+    await _prefs!.remove(_otpKeyExpiry);
+  }
+
+  Future<void> _setResendCooldown() async {
+    await _initPrefs();
+    final ts = DateTime.now()
+        .add(ApiConfig.resendCooldown)
+        .millisecondsSinceEpoch;
+    await _prefs!.setInt(_otpKeyCooldown, ts);
+  }
+
+  Future<int?> _getResendCooldownLeft() async {
+    await _initPrefs();
+    final until = _prefs!.getInt(_otpKeyCooldown);
+    if (until == null) return null;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final left = until - now;
+    return left > 0 ? left : 0;
+  }
+
+  void _onMobileNumberChanged() {
+    final mobile = _mobileController.text;
+
+    // Clear previous error when user starts typing
+    if (_mobileValidationError != null) {
+      setState(() {
+        _mobileValidationError = null;
+      });
+    }
+
+    // Reset OTP verification if mobile changes
+    if (_isOtpVerified) {
+      setState(() {
+        _isOtpVerified = false;
+        _showOtpField = false;
+        _otpController.clear();
+      });
+    }
+
+    // Only check if mobile number is valid format
+    final mobileErr = PainterService.validateMobileNumber(mobile);
+    if (mobileErr != null) {
+      return; // Don't check duplicate if format is invalid
+    }
+
+    // Debounce the API call
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 800), () {
+      _checkMobileDuplicateRealTime(mobile);
+    });
+  }
+
+  Timer? _debounceTimer;
+
+  Future<void> _sendOtp() async {
+    if (_isSendingOtp) return;
+
+    final mobileRaw = _mobileController.text.trim();
+    final mobileErr = PainterService.validateMobileNumber(mobileRaw);
+    if (mobileErr != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mobileErr), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    // Check cooldown
+    final leftMs = await _getResendCooldownLeft();
+    if (leftMs != null && leftMs > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Please wait ${(leftMs / 1000).ceil()} seconds before resending'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSendingOtp = true);
+
+    try {
+      final otp = _genOtp6();
+      final formats = _getAllMobileFormats(mobileRaw);
+      bool sent = false;
+      String? lastError;
+
+      // Try sending SMS directly without checking registration status
+      for (final format in formats) {
+        final result = await SmsUaeService.sendSms(
+          mobileNo: format,
+          message: ApiConfig.otpMessage(otp),
+          priority: 'High',
+          countryCode: 'ALL',
+        );
+
+        if (result.success) {
+          sent = true;
+          await _saveOtpLocally(mobile: _normalizeForPrefs(mobileRaw), otp: otp);
+          await _setResendCooldown();
+          setState(() {
+            _showOtpField = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('OTP sent successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          break;
+        } else {
+          lastError = result.message ?? 'Failed to send OTP';
+        }
+      }
+
+      if (!sent && lastError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(lastError), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error sending OTP: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isSendingOtp = false);
+    }
+  }
+
+  Future<void> _verifyOtp() async {
+    final enteredOtp = _otpController.text.trim();
+    if (enteredOtp.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid 6-digit OTP'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final stored = await _loadOtp();
+    if (stored == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No OTP found. Please request a new OTP.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final targetMobile = stored['mobile'] as String;
+    final savedOtp = stored['otp'] as String;
+    final expiry = stored['expiry'] as int;
+
+    if (_normalizeForPrefs(_mobileController.text) != targetMobile) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mobile number mismatch. Request OTP again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (now > expiry) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('OTP expired. Please request a new OTP.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (enteredOtp != savedOtp) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid OTP. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // OTP verified successfully
+    await _clearOtp();
+    setState(() {
+      _isOtpVerified = true;
+    });
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Registration submitted successfully!',
-                style: TextStyle(color: Colors.white),
+      const SnackBar(
+        content: Text('Mobile number verified successfully!'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  void _checkMobileDuplicateRealTime(String mobile) async {
+    if (!mounted || mobile.isEmpty) return;
+
+    setState(() {
+      _isCheckingMobile = true;
+      _mobileValidationError = null;
+    });
+
+    try {
+      final duplicateCheck = await PainterService.checkMobileDuplicate(mobile);
+
+      if (mounted) {
+        setState(() {
+          _isCheckingMobile = false;
+          if (duplicateCheck.success && duplicateCheck.exists) {
+            _mobileValidationError = duplicateCheck.message.isNotEmpty
+                ? duplicateCheck.message
+                : 'This mobile number is already registered';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isCheckingMobile = false;
+          // Don't show error for real-time check failures
+        });
+      }
+    }
+  }
+
+  Widget _buildMobileNumberField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: Text(
+            'Mobile Number *',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+        ),
+        TextFormField(
+          controller: _mobileController,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(
+            hintText: 'Mobile Number',
+            hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
+            prefixIcon: Icon(
+              Icons.phone_outlined,
+              color: Colors.grey[600],
+              size: 20,
+            ),
+            suffixIcon: _isCheckingMobile
+                ? Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                      ),
+                    ),
+                  )
+                : _mobileValidationError != null
+                ? Icon(Icons.error_outline, color: Colors.red, size: 20)
+                : null,
+            filled: true,
+            fillColor: Colors.grey[50],
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey[300]!),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: _mobileValidationError != null
+                    ? Colors.red
+                    : Colors.grey[300]!,
               ),
             ),
-          ],
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: _mobileValidationError != null
+                    ? Colors.red
+                    : Colors.blue,
+                width: 2,
+              ),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.red),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.red, width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 16,
+            ),
+          ),
+          style: const TextStyle(fontSize: 14, color: Colors.black87),
         ),
-        backgroundColor: const Color(0xFF10B981),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
+        if (_mobileValidationError != null) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _mobileValidationError!,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 
@@ -504,12 +1225,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               icon: Icons.person_outline_rounded,
               controller: _lastNameController,
             ),
-            ResponsiveTextField(
-              label: 'Mobile Number',
-              icon: Icons.phone_outlined,
-              controller: _mobileController,
-              isPhone: true,
-            ),
+            _buildMobileNumberField(),
           ],
         ),
         const ResponsiveSpacing(mobile: 20),
@@ -578,8 +1294,12 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
             label: '',
             icon: Icons.camera_alt_outlined,
             allowedExtensions: const ['jpg', 'jpeg', 'png'],
+            enableServerUpload: false,
             onFileSelected: (file) {
-              // Handle selected profile photo (e.g. store file or update state)
+              print('Profile photo selected: $file');
+              setState(() {
+                _profilePhotoPath = file;
+              });
             },
           ),
           SizedBox(height: 12.h),
@@ -605,12 +1325,17 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
             children: [
               ElevatedButton.icon(
                 onPressed: () async {
-                  if (_emiratesIdFrontFile != null && _emiratesIdBackFile != null) {
+                  if (_emiratesIdFrontFile != null &&
+                      _emiratesIdBackFile != null) {
                     await _processEmiratesIdOcrWithRetry();
                   } else {
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Please upload both front and back images first')),
+                        const SnackBar(
+                          content: Text(
+                            'Please upload both front and back images first',
+                          ),
+                        ),
                       );
                     }
                   }
@@ -665,7 +1390,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Make sure all details are clearly visible and not blurry',
+                  'Make sure all details are clearly visible and not blurry. You can upload images (JPG, PNG) or PDF files.',
                   style: TextStyle(
                     fontSize: 13,
                     color: const Color(0xFF1E3A8A),
@@ -734,7 +1459,12 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     );
   }
 
-  Widget _buildIdUploadCard(String title, IconData icon, String subtitle, {required bool isFront}) {
+  Widget _buildIdUploadCard(
+    String title,
+    IconData icon,
+    String subtitle, {
+    required bool isFront,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -775,10 +1505,17 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
           FileUploadWidget(
             label: '',
             icon: Icons.cloud_upload_outlined,
-            allowedExtensions: const ['jpg', 'jpeg', 'png'],
+            allowedExtensions: const [
+              'jpg',
+              'jpeg',
+              'png',
+              'pdf',
+            ], // Added 'pdf'
+            enableServerUpload: false,
             onFileSelected: (file) async {
               // Store selected file path for later verification
               if (file != null) {
+                print('Emirates ID ${isFront ? 'Front' : 'Back'} selected: $file');
                 setState(() {
                   if (isFront) {
                     _emiratesIdFrontFile = file;
@@ -786,23 +1523,33 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                     _emiratesIdBackFile = file;
                   }
                 });
+                final isPdf = file.toLowerCase().endsWith('.pdf');
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Image uploaded')),
+                  SnackBar(
+                    content: Text('${isPdf ? 'PDF' : 'Image'} uploaded'),
+                  ),
                 );
                 // If both sides uploaded, run OCR to autofill fields
-                if (_emiratesIdFrontFile != null && _emiratesIdBackFile != null) {
+                if (_emiratesIdFrontFile != null &&
+                    _emiratesIdBackFile != null) {
                   await _processEmiratesIdOcrWithRetry();
                 }
               }
             },
           ),
           SizedBox(height: 8.h),
-          if (isFront ? (_emiratesIdFrontFile != null) : (_emiratesIdBackFile != null))
+          if (isFront
+              ? (_emiratesIdFrontFile != null)
+              : (_emiratesIdBackFile != null))
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 'Uploaded',
-                style: TextStyle(color: Colors.green.shade700, fontSize: 12.sp, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: Colors.green.shade700,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
         ],
@@ -908,7 +1655,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Your bank details are encrypted and securely stored',
+                      'Your bank details are encrypted and securely stored. Upload a bank document to auto-fill details.',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey.shade600,
@@ -925,11 +1672,44 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
           label: 'Bank Document (Optional)',
           icon: Icons.attach_file_outlined,
           allowedExtensions: const ['jpg', 'jpeg', 'png', 'pdf'],
-          onFileSelected: (file) {
-            // Handle selected bank document file (no-op for now)
+          enableServerUpload: false,
+          onFileSelected: (file) async {
+            if (file != null) {
+              print('Bank document selected: $file');
+              setState(() {
+                _bankDocumentFile = file;
+              });
+
+              final isPdf = file.toLowerCase().endsWith('.pdf');
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${isPdf ? 'PDF' : 'Image'} uploaded. Processing...',
+                  ),
+                ),
+              );
+
+              // Process the bank document for OCR
+              await _processBankDocumentOcr();
+            }
           },
         ),
         const SizedBox(height: 24),
+        if (_isProcessingBankOcr) ...[
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text('Processing bank document...'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
         _buildResponsiveRow(
           children: [
             _buildModernTextField(
@@ -970,6 +1750,21 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
           controller: _bankAddressController,
           isRequired: false,
         ),
+        if (_bankDocumentFile != null) ...[
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: () async {
+              if (_bankDocumentFile != null) {
+                await _processBankDocumentOcr();
+              }
+            },
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Re-scan Bank Document'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E3A8A),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -1110,6 +1905,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   }) {
     return TextFormField(
       controller: controller,
+      style: TextStyle(
+        color: Colors.black87, // Dark color for the input text
+        fontSize: 16.sp,
+        fontWeight: FontWeight.w500,
+      ),
       decoration: InputDecoration(
         labelText: isRequired ? '$label *' : label,
         labelStyle: TextStyle(
@@ -1159,6 +1959,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   }) {
     return TextFormField(
       controller: controller,
+      style: TextStyle(
+        color: Colors.black87, // Dark color for the input text
+        fontSize: 16.sp,
+        fontWeight: FontWeight.w500,
+      ),
       decoration: InputDecoration(
         labelText: isRequired ? '$label *' : label,
         labelStyle: TextStyle(
@@ -1264,10 +2069,10 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               ),
               const SizedBox(height: 16),
               Text(
-                'Fill in all required fields marked with *. Upload your Emirates ID to auto-fill information. Bank details are optional but recommended for faster payments.',
+                'Fill in all required fields marked with *. Upload your Emirates ID (images or PDF) to auto-fill information. Upload bank documents to auto-fill bank details. Bank details are optional but recommended for faster payments.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.grey.shade600,
+                  color: Colors.black,
                   fontSize: 15,
                   height: 1.5,
                 ),
@@ -1302,34 +2107,8 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     );
   }
 
-  // OCR processing with retry mechanism
-  Future<void> _processEmiratesIdOcrWithRetry({int maxRetries = 3}) async {
-    int attempts = 0;
-    bool success = false;
-    
-    while (attempts < maxRetries && !success) {
-      try {
-        await _processEmiratesIdOcr();
-        success = true;
-      } catch (e) {
-        attempts++;
-        if (attempts >= maxRetries) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('OCR failed after $maxRetries attempts')),
-            );
-          }
-        } else {
-          // Wait a bit before retrying
-          await Future.delayed(const Duration(seconds: 1));
-        }
-      }
-    }
-  }
-
-  // OCR processing: runs text recognition on both images and updates controllers
-  Future<void> _processEmiratesIdOcr() async {
-    if (_isProcessingOcr) return;
+  // OCR processing with retry mechanism for Emirates ID
+  Future<void> _processEmiratesIdOcrWithRetry() async {
     if (_emiratesIdFrontFile == null || _emiratesIdBackFile == null) return;
 
     setState(() {
@@ -1337,41 +2116,25 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     });
 
     try {
-      final frontText = await _recognizeText(File(_emiratesIdFrontFile!));
-      final backText = await _recognizeText(File(_emiratesIdBackFile!));
-
-      // Debug logging
-      print('Front OCR Text: $frontText');
-      print('Back OCR Text: $backText');
-
-      // First try MRZ parsing from back (most reliable)
-      final mrzResult = _parseMrz(backText);
-      print('MRZ Result: $mrzResult');
-      if (mrzResult != null) {
-        _updateFieldsFromResult(mrzResult);
-      }
-
-      // Then try to parse front image for readable fields
-      final frontFields = _parseFrontText(frontText);
-      print('Front Fields: $frontFields');
-      _updateFieldsFromResult(frontFields, overwrite: mrzResult == null);
-
-      // Parse back image for employer, occupation, and other fields
-      final backFields = _parseBackText(backText);
-      print('Back Fields: $backFields');
-      _updateFieldsFromResult(backFields, overwrite: true);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Emirates ID fields autofilled')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('OCR failed: ${e.toString()}')),
-        );
-      }
+      await _ocrService.processEmiratesIdOcrWithRetry(
+        frontImagePath: _emiratesIdFrontFile!,
+        backImagePath: _emiratesIdBackFile!,
+        onFieldsExtracted: (result) {
+          _updateFieldsFromResult(result);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Emirates ID fields autofilled')),
+            );
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(error)));
+          }
+        },
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -1381,442 +2144,410 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     }
   }
 
-  Future<String> _recognizeText(File imageFile) async {
-    // Preprocess image for better OCR
-    final processedImage = await _preprocessImage(imageFile);
-    final inputImage = InputImage.fromFilePath(processedImage.path);
-    final textRecognizer = TextRecognizer();
-    
+  // OCR processing for bank document with retry mechanism
+  Future<void> _processBankDocumentOcr() async {
+    if (_bankDocumentFile == null) return;
+
+    setState(() {
+      _isProcessingBankOcr = true;
+    });
+
     try {
-      final recognisedText = await textRecognizer.processImage(inputImage);
-      return recognisedText.text;
+      await _bankOcrService.processBankDetailsOcrWithRetry(
+        bankDocumentPath: _bankDocumentFile!,
+        onFieldsExtracted: (result) {
+          _updateBankFieldsFromResult(result);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Bank details autofilled')),
+            );
+          }
+        },
+        onError: (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(error)));
+          }
+        },
+      );
     } finally {
-      await textRecognizer.close();
+      if (mounted) {
+        setState(() {
+          _isProcessingBankOcr = false;
+        });
+      }
     }
   }
 
-  // Placeholder for image preprocessing
-  Future<File> _preprocessImage(File imageFile) async {
-    // You can use image package to enhance the image before OCR
-    // For example: increase contrast, convert to grayscale, etc.
-    // This is just a placeholder for the actual implementation
-    return imageFile;
-  }
-
-  // Parse MRZ style text from back of Emirates ID
-  Map<String, String?>? _parseMrz(String text) {
-    final lines = text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-    if (lines.isEmpty) return null;
-
-    // Emirates ID MRZ typically has 3 lines at the bottom
-    // Look for lines with the pattern ID<ARE<...>
-    final mrzLines = lines.where((l) => 
-      l.contains('ID') && l.contains('ARE') && l.contains('<')
-    ).toList();
-    
-    if (mrzLines.isEmpty) return null;
-    
-    // Get the last 3 lines which should be the MRZ
-    final mrzStartIndex = lines.indexOf(mrzLines.first);
-    if (mrzStartIndex + 2 >= lines.length) return null;
-    
-    final line1 = lines[mrzStartIndex];
-    final line2 = lines[mrzStartIndex + 1];
-    final line3 = lines[mrzStartIndex + 2];
-    
-    final result = <String, String?>{
-      'id': null,
-      'name': null,
-      'nationality': null,
-      'dob': null,
-      'expiry': null,
-    };
-    
-    // Line 1: ID<ARE<LASTNAME<<FIRSTNAME<MIDDLENAME
-    if (line1.contains('ID') && line1.contains('ARE')) {
-      // Extract ID number from line 2
-      final idMatch = RegExp(r'([0-9]{3}-[0-9]{4}-[0-9]{7}-[0-9])').firstMatch(line2);
-      if (idMatch != null) {
-        result['id'] = idMatch.group(0);
-      }
-      
-      // Extract name from line 1
-      final nameParts = line1.split('<').where((p) => p.isNotEmpty).toList();
-      if (nameParts.length >= 3) {
-        // Emirates ID format: ID<ARE<LASTNAME<<FIRSTNAME<MIDDLENAME
-        final lastName = nameParts[2].trim();
-        final firstName = nameParts.length > 3 ? nameParts[3].trim() : '';
-        final middleName = nameParts.length > 4 ? nameParts[4].trim() : '';
-        
-        result['name'] = '$firstName $middleName $lastName'.trim();
-      }
-      
-      // Extract dates from line 3
-      // Format: YYYYMMDD<<SEX<EXPIRY<<<<<
-      final dobMatch = RegExp(r'([0-9]{7})').firstMatch(line3);
-      if (dobMatch != null) {
-        final dob = dobMatch.group(0)!;
-        if (dob.length == 7) {
-          // Format: YYMMDDc where c is check digit
-          final yy = int.parse(dob.substring(0, 2));
-          final mm = dob.substring(2, 4);
-          final dd = dob.substring(4, 6);
-          final year = (yy >= 0 && yy <= 30) ? (2000 + yy) : (1900 + yy);
-          result['dob'] = '$dd/$mm/$year';
-        }
-      }
-      
-      // Extract expiry date
-      final expiryMatch = RegExp(r'([0-9]{7})').allMatches(line3).toList();
-      if (expiryMatch.length >= 2) {
-        final expiry = expiryMatch[1].group(0)!;
-        if (expiry.length == 7) {
-          final yy = int.parse(expiry.substring(0, 2));
-          final mm = expiry.substring(2, 4);
-          final dd = expiry.substring(4, 6);
-          final year = (yy >= 0 && yy <= 30) ? (2000 + yy) : (1900 + yy);
-          result['expiry'] = '$dd/$mm/$year';
-        }
-      }
-      
-      // Nationality is ARE for UAE
-      result['nationality'] = 'United Arab Emirates';
-    }
-    
-    return result;
-  }
-
-  // Heuristics for front side text to find labeled fields
-  Map<String, String?> _parseFrontText(String text) {
-    final result = <String, String?>{
-      'id': null,
-      'name': null,
-      'dob': null,
-      'nationality': null,
-      'issue': null,
-      'expiry': null,
-    };
-
-    final lines = text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-    
-    // Emirates ID has specific field labels
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      final lower = line.toLowerCase();
-
-      // ID number with dashes
-      final idPattern = RegExp(r'[0-9]{3}-[0-9]{4}-[0-9]{7}-[0-9]');
-      final idMatch = idPattern.firstMatch(line);
-      if (idMatch != null) {
-        result['id'] = idMatch.group(0);
-        continue;
-      }
-
-      // Check for field labels in both English and Arabic
-      if (lower.contains('id number') || lower.contains('رقم الهوية')) {
-        // ID might be on the same line or next line
-        if (idMatch == null && i + 1 < lines.length) {
-          final nextIdMatch = idPattern.firstMatch(lines[i + 1]);
-          if (nextIdMatch != null) {
-            result['id'] = nextIdMatch.group(0);
-          }
-        }
-        continue;
-      }
-
-      // Name field
-      if (lower.contains('name') || lower.contains('الاسم')) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) result['name'] = parts[1].trim();
-        } else if (i + 1 < lines.length) {
-          result['name'] = lines[i + 1];
-        }
-        continue;
-      }
-
-      // Date of birth
-      if (lower.contains('date of birth') || lower.contains('تاريخ الميلاد')) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['dob'] = _normalizeDate(parts[1].trim());
-          }
-        } else if (i + 1 < lines.length) {
-          result['dob'] = _normalizeDate(lines[i + 1]);
-        }
-        continue;
-      }
-
-      // Nationality
-      if (lower.contains('nationality') || lower.contains('الجنسية')) {
-        String? natValue;
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) natValue = parts[1].trim();
-        } else if (i + 1 < lines.length) {
-          natValue = lines[i + 1].trim();
-        }
-        // Fix: If nationality contains 'india' (case-insensitive), set to 'India'
-        if (natValue != null && natValue.toLowerCase().contains('india')) {
-          result['nationality'] = 'India';
-        } else if (natValue != null && natValue.isNotEmpty) {
-          result['nationality'] = natValue;
-        }
-        continue;
-      }
-
-      // Issue date (ensure not to overwrite nationality)
-      if ((lower.contains('issue') || lower.contains('إصدار')) && !lower.contains('nationality')) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['issue'] = _normalizeDate(parts[1].trim());
-          }
-        } else if (i + 1 < lines.length) {
-          result['issue'] = _normalizeDate(lines[i + 1]);
-        }
-        continue;
-      }
-
-      // Expiry date
-      if (lower.contains('expiry') || lower.contains('انتهاء')) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['expiry'] = _normalizeDate(parts[1].trim());
-          }
-        } else if (i + 1 < lines.length) {
-          result['expiry'] = _normalizeDate(lines[i + 1]);
-        }
-        continue;
-      }
-
-      // Try to extract any date format
-      final dateMatch = RegExp(r'\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b').firstMatch(line);
-      if (dateMatch != null) {
-        final date = _normalizeDate(dateMatch.group(0)!);
-        // If we don't have dates yet, try to assign based on context
-        if (result['dob'] == null && result['issue'] == null && result['expiry'] == null) {
-          // First date is likely DOB
-          result['dob'] = date;
-        } else if (result['dob'] != null && result['issue'] == null && result['expiry'] == null) {
-          // Second date is likely issue date
-          result['issue'] = date;
-        } else if (result['dob'] != null && result['issue'] != null && result['expiry'] == null) {
-          // Third date is likely expiry date
-          result['expiry'] = date;
-        }
-      }
+  // Helper to update form fields from parsed Emirates ID results
+  void _updateFieldsFromResult(Map<String, String?> result) {
+    if (result['id'] != null && _ocrService.isValidEmiratesId(result['id']!)) {
+      _emiratesIdController.text = result['id']!;
     }
 
-    return result;
-  }
-
-  // Parse back side text for employer, occupation, nationality, issue/expiry
-  Map<String, String?> _parseBackText(String text) {
-    final result = <String, String?>{
-      'employer': null,
-      'occupation': null,
-      'nationality': null,
-      'issue': null,
-      'expiry': null,
-    };
-
-    final lines = text.split('\n').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-    
-    // Arabic keywords mapping
-    final arabicEmployerKeywords = ['صاحب العمل', 'الجهة', 'الشركة'];
-    final arabicOccupationKeywords = ['المهنة', 'وظيفة', 'المسمى الوظيفي'];
-    final arabicNationalityKeywords = ['الجنسية'];
-    final arabicIssueKeywords = ['تاريخ الإصدار'];
-    final arabicExpiryKeywords = ['تاريخ الانتهاء'];
-    
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i];
-      final lower = line.toLowerCase();
-      
-      // Employer / Company
-      if (lower.contains('employer') || lower.contains('company') || 
-          arabicEmployerKeywords.any((k) => line.contains(k))) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['employer'] = parts.sublist(1).join(':').trim();
-          }
-        } else if (i + 1 < lines.length) {
-          result['employer'] = lines[i + 1];
-        }
-        continue;
-      }
-      
-      // Occupation
-      if (lower.contains('occupation') || lower.contains('profession') || 
-          arabicOccupationKeywords.any((k) => line.contains(k))) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['occupation'] = parts.sublist(1).join(':').trim();
-          }
-        } else if (i + 1 < lines.length) {
-          result['occupation'] = lines[i + 1];
-        }
-        continue;
-      }
-      
-      // Nationality
-      if (lower.contains('nationality') || 
-          arabicNationalityKeywords.any((k) => line.contains(k))) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['nationality'] = parts[1].trim();
-          }
-        } else if (i + 1 < lines.length) {
-          result['nationality'] = lines[i + 1];
-        }
-        continue;
-      }
-      
-      // Issue date
-      if (lower.contains('issue') || lower.contains('issued') || 
-          arabicIssueKeywords.any((k) => line.contains(k))) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['issue'] = _normalizeDate(parts[1].trim());
-          }
-        } else if (i + 1 < lines.length) {
-          result['issue'] = _normalizeDate(lines[i + 1]);
-        }
-        continue;
-      }
-      
-      // Expiry date
-      if (lower.contains('expiry') || lower.contains('expire') || 
-          arabicExpiryKeywords.any((k) => line.contains(k))) {
-        if (line.contains(':')) {
-          final parts = line.split(':');
-          if (parts.length > 1) {
-            result['expiry'] = _normalizeDate(parts[1].trim());
-          }
-        } else if (i + 1 < lines.length) {
-          result['expiry'] = _normalizeDate(lines[i + 1]);
-        }
-        continue;
-      }
-      
-      // Try to extract any date format
-      final dateMatch = RegExp(r'\b\d{2}[\/\-]\d{2}[\/\-]\d{4}\b').firstMatch(line);
-      if (dateMatch != null) {
-        final date = _normalizeDate(dateMatch.group(0)!);
-        // If we don't have dates yet, try to assign based on context
-        if (result['issue'] == null && result['expiry'] == null) {
-          // First date is likely issue date
-          result['issue'] = date;
-        } else if (result['issue'] != null && result['expiry'] == null) {
-          // Second date is likely expiry date
-          result['expiry'] = date;
-        }
-      }
-    }
-    
-    return result;
-  }
-
-  // Helper to normalize date formats
-  String _normalizeDate(String date) {
-    // Convert dd-mm-yyyy or yyyy-mm-dd to dd/mm/yyyy
-    if (date.contains('-')) {
-      final parts = date.split('-');
-      if (parts.length == 3) {
-        // Check if it's yyyy-mm-dd
-        if (parts[0].length == 4) {
-          return '${parts[2]}/${parts[1]}/${parts[0]}';
-        } else {
-          // It's dd-mm-yyyy
-          return '${parts[0]}/${parts[1]}/${parts[2]}';
-        }
-      }
-    }
-    return date;
-  }
-
-  // Helper to update form fields from parsed results
-  void _updateFieldsFromResult(Map<String, String?> result, {bool overwrite = false}) {
-    if (result['id'] != null && (overwrite || _emiratesIdController.text.isEmpty)) {
-      if (_isValidEmiratesId(result['id']!)) {
-        _emiratesIdController.text = result['id']!;
-      }
-    }
-    
-    if (result['name'] != null && (overwrite || _nameOfHolderController.text.isEmpty)) {
+    if (result['name'] != null) {
       _nameOfHolderController.text = result['name']!;
-      
+
       // Try to split name into first, middle, last
       final nameParts = result['name']!.split(' ');
-      if (nameParts.isNotEmpty && (overwrite || _firstNameController.text.isEmpty)) {
+      if (nameParts.isNotEmpty) {
         _firstNameController.text = nameParts.first;
       }
-      if (nameParts.length > 2 && (overwrite || _middleNameController.text.isEmpty)) {
-        _middleNameController.text = nameParts.sublist(1, nameParts.length - 1).join(' ');
+      if (nameParts.length > 2) {
+        _middleNameController.text = nameParts
+            .sublist(1, nameParts.length - 1)
+            .join(' ');
       }
-      if (nameParts.length > 1 && (overwrite || _lastNameController.text.isEmpty)) {
+      if (nameParts.length > 1) {
         _lastNameController.text = nameParts.last;
       }
     }
-    
-    if (result['dob'] != null && (overwrite || _dobController.text.isEmpty)) {
-      if (_isValidDate(result['dob']!)) {
+
+    if (result['dob'] != null && result['dob']!.isNotEmpty) {
+      if (_ocrService.isValidDate(result['dob']!)) {
         _dobController.text = result['dob']!;
       }
     }
-    
-    if (result['nationality'] != null && (overwrite || _nationalityController.text.isEmpty)) {
+
+    if (result['nationality'] != null) {
       _nationalityController.text = result['nationality']!;
     }
-    
-    if (result['issue'] != null && (overwrite || _issueDateController.text.isEmpty)) {
-      if (_isValidDate(result['issue']!)) {
+
+    if (result['issue'] != null) {
+      if (_ocrService.isValidDate(result['issue']!)) {
         _issueDateController.text = result['issue']!;
       }
     }
-    
-    if (result['expiry'] != null && (overwrite || _expiryDateController.text.isEmpty)) {
-      if (_isValidDate(result['expiry']!)) {
+
+    if (result['expiry'] != null) {
+      if (_ocrService.isValidDate(result['expiry']!)) {
         _expiryDateController.text = result['expiry']!;
       }
     }
-    
-    if (result['employer'] != null && (overwrite || _companyDetailsController.text.isEmpty)) {
+
+    if (result['employer'] != null) {
       _companyDetailsController.text = result['employer']!;
     }
-    
-    if (result['occupation'] != null && (overwrite || _occupationController.text.isEmpty)) {
+
+    if (result['occupation'] != null) {
       _occupationController.text = result['occupation']!;
     }
   }
 
-  // Validation helpers
-  bool _isValidEmiratesId(String id) {
-    // Emirates ID format: XXX-XXXX-XXXXXXX-X
-    return RegExp(r'^[0-9]{3}-[0-9]{4}-[0-9]{7}-[0-9]$').hasMatch(id);
+  // Helper to update bank form fields from parsed results
+  void _updateBankFieldsFromResult(Map<String, String?> result) {
+    if (result['accountHolder'] != null &&
+        result['accountHolder']!.isNotEmpty) {
+      _accountHolderController.text = result['accountHolder']!;
+    }
+
+    if (result['iban'] != null && result['iban']!.isNotEmpty) {
+      if (_bankOcrService.isValidIban(result['iban']!)) {
+        _ibanController.text = result['iban']!;
+      }
+    }
+
+    if (result['bankName'] != null && result['bankName']!.isNotEmpty) {
+      _bankNameController.text = result['bankName']!;
+    }
+
+    if (result['branchName'] != null && result['branchName']!.isNotEmpty) {
+      _branchNameController.text = result['branchName']!;
+    }
+
+    if (result['bankAddress'] != null && result['bankAddress']!.isNotEmpty) {
+      _bankAddressController.text = result['bankAddress']!;
+    }
   }
 
-  bool _isValidDate(String date) {
-    // Check if date is in DD/MM/YYYY format and is a valid date
-    try {
-      final parts = date.split('/');
-      if (parts.length != 3) return false;
-      
-      final day = int.parse(parts[0]);
-      final month = int.parse(parts[1]);
-      final year = int.parse(parts[2]);
-      
-      final dateObj = DateTime(year, month, day);
-      return dateObj.day == day && dateObj.month == month && dateObj.year == year;
-    } catch (e) {
-      return false;
+  /// Upload all selected files to server after successful registration
+  Future<void> _uploadFilesToServer() async {
+    print('=== Starting file upload to server ===');
+    
+    final personName = _getFullName();
+    final mobileNumber = _getMobileNumber();
+    
+    print('Person Name: $personName');
+    print('Mobile Number: $mobileNumber');
+
+    if (personName.isEmpty || mobileNumber.isEmpty) {
+      print('Skipping upload - name or mobile is empty');
+      return; // Skip upload if name or mobile is empty
     }
+
+    final filesToUpload = <String, String?>{
+      'Profile Photo': _profilePhotoPath,
+      'Emirates ID Front': _emiratesIdFrontFile,
+      'Emirates ID Back': _emiratesIdBackFile,
+      'Bank Document': _bankDocumentFile,
+    };
+
+    print('Files to upload: $filesToUpload');
+
+    for (final entry in filesToUpload.entries) {
+      final fileName = entry.key;
+      final filePath = entry.value;
+
+      print('Processing $fileName: $filePath');
+
+      if (filePath != null && filePath.isNotEmpty) {
+        try {
+          final file = File(filePath);
+          final fileExists = await file.exists();
+          print('File exists: $fileExists');
+          
+          if (fileExists) {
+            print('Uploading $fileName to server...');
+            final response = await ImageUploadService.uploadImage(
+              file: file,
+              personName: personName,
+              mobileNumber: mobileNumber,
+            );
+
+            print('$fileName uploaded successfully with key: ${response.data.attFilKy}');
+            
+            // Show success message to user
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('$fileName uploaded successfully!'),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          } else {
+            print('File does not exist: $filePath');
+          }
+        } catch (e) {
+          print('Failed to upload $fileName: $e');
+          
+          // Show error message to user
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to upload $fileName: $e'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          // Continue with other files even if one fails
+        }
+      } else {
+        print('$fileName: No file selected');
+      }
+    }
+    
+    print('=== File upload process completed ===');
+  }
+
+  /// Helper method to get full name from form fields
+  String _getFullName() {
+    final firstName = _firstNameController.text.trim();
+    final middleName = _middleNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+
+    final nameParts = [
+      firstName,
+      middleName,
+      lastName,
+    ].where((part) => part.isNotEmpty).toList();
+
+    return nameParts.join(' ');
+  }
+
+  /// Helper method to get mobile number from form field
+  String _getMobileNumber() {
+    return _mobileController.text.trim();
+  }
+
+  /// Build mobile verification section (Step 1)
+  Widget _buildMobileVerificationSection() {
+    return ResponsiveSection(
+      title: 'Mobile Verification',
+      icon: Icons.phone_outlined,
+      subtitle: 'Verify your mobile number with OTP',
+      children: [
+        ResponsiveRow(
+          children: [
+            ResponsiveTextField(
+              label: 'Mobile Number',
+              icon: Icons.phone_outlined,
+              controller: _mobileController,
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(9),
+              ],
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Please enter mobile number';
+                }
+                return PainterService.validateMobileNumber(value);
+              },
+              suffixIcon: _isCheckingMobile
+                  ? const Padding(
+                      padding: EdgeInsets.all(12.0),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : _mobileValidationError != null
+                      ? const Icon(Icons.error_outline, color: Colors.red)
+                      : _isOtpVerified
+                          ? const Icon(Icons.check_circle, color: Colors.green)
+                          : null,
+            ),
+          ],
+        ),
+        if (_mobileValidationError != null) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _mobileValidationError!,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        const ResponsiveSpacing(mobile: 20),
+        if (!_showOtpField) ...[
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _isSendingOtp ? null : _sendOtp,
+              icon: _isSendingOtp
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.sms_outlined),
+              label: Text(_isSendingOtp ? 'Sending OTP...' : 'Send OTP'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E3A8A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+        if (_showOtpField) ...[
+          ResponsiveRow(
+            children: [
+              ResponsiveTextField(
+                label: 'Enter OTP',
+                icon: Icons.security_outlined,
+                controller: _otpController,
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter OTP';
+                  }
+                  if (value.trim().length != 6) {
+                    return 'OTP must be 6 digits';
+                  }
+                  return null;
+                },
+                suffixIcon: _isOtpVerified
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
+              ),
+            ],
+          ),
+          const ResponsiveSpacing(mobile: 20),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _isSendingOtp ? null : _sendOtp,
+                  icon: _isSendingOtp
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh_outlined),
+                  label: Text(_isSendingOtp ? 'Sending...' : 'Resend OTP'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF1E3A8A),
+                    side: const BorderSide(color: Color(0xFF1E3A8A)),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _isOtpVerified ? null : _verifyOtp,
+                  icon: _isOtpVerified
+                      ? const Icon(Icons.check_circle)
+                      : const Icon(Icons.verified_outlined),
+                  label: Text(_isOtpVerified ? 'Verified' : 'Verify OTP'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isOtpVerified 
+                        ? Colors.green 
+                        : const Color(0xFF1E3A8A),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        if (_isOtpVerified) ...[
+          const ResponsiveSpacing(mobile: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green.shade200),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green.shade700),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Mobile number verified successfully! You can now proceed to the next step.',
+                    style: TextStyle(
+                      color: Colors.green.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }

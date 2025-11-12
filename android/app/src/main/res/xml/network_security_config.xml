@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">qa.birlawhite.com</domain>
+        <domain includeSubdomains="true">www.birlawhite.com</domain>
+        <trust-anchors>
+            <!-- Trust system CAs -->
+            <certificates src="system"/>
+            <!-- Additionally trust user added CAs -->
+            <certificates src="user"/>
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

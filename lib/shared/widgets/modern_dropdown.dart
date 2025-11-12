@@ -26,6 +26,13 @@ class ModernDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final IconData? actualIcon = icon ?? prefixIcon;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textColor = colorScheme.onSurface;
+    final hintColor = colorScheme.onSurface.withOpacity(0.6);
+    final iconColor = colorScheme.onSurface.withOpacity(0.7);
+    final containerColor = colorScheme.surface;
+    final borderColor = colorScheme.onSurface.withOpacity(0.12);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -42,22 +49,21 @@ class ModernDropdown extends StatelessWidget {
                   desktop: 16,
                 ),
                 fontWeight: FontWeight.w600,
-                color: Colors.black87,
+                color: textColor,
               ),
             ),
           ),
         Container(
           decoration: BoxDecoration(
-            color: Colors.grey[50],
+            color: containerColor,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[300]!, width: 1),
+            border: Border.all(color: borderColor, width: 1),
           ),
           child: DropdownButtonFormField<String>(
-            initialValue: value,
             hint: Text(
               hint ?? 'Select $label',
               style: TextStyle(
-                color: Colors.grey[400],
+                color: hintColor,
                 fontSize: ResponsiveUtils.getResponsiveFontSize(
                   context,
                   mobile: 14,
@@ -68,7 +74,7 @@ class ModernDropdown extends StatelessWidget {
             ),
             decoration: InputDecoration(
               prefixIcon: actualIcon != null
-                  ? Icon(actualIcon, color: Colors.grey[600], size: 20)
+                  ? Icon(actualIcon, color: iconColor, size: 20)
                   : null,
               border: InputBorder.none,
               contentPadding: EdgeInsets.symmetric(
@@ -89,14 +95,14 @@ class ModernDropdown extends StatelessWidget {
                       tablet: 15,
                       desktop: 16,
                     ),
-                    color: Colors.black87,
+                    color: textColor,
                   ),
                 ),
               );
             }).toList(),
             onChanged: onChanged,
-            icon: Icon(Icons.keyboard_arrow_down, color: Colors.grey[600]),
-            dropdownColor: Colors.white,
+            icon: Icon(Icons.keyboard_arrow_down, color: iconColor),
+            dropdownColor: colorScheme.surface,
             style: TextStyle(
               fontSize: ResponsiveUtils.getResponsiveFontSize(
                 context,
@@ -104,7 +110,7 @@ class ModernDropdown extends StatelessWidget {
                 tablet: 15,
                 desktop: 16,
               ),
-              color: Colors.black87,
+              color: textColor,
             ),
           ),
         ),
