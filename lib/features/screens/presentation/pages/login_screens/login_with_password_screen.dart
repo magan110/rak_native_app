@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:rak_app/core/services/auth_service.dart';
 import 'package:rak_app/core/services/autologin_service.dart';
 import 'package:rak_app/core/models/auth_models.dart';
 import 'package:rak_app/core/services/storage_service.dart';
 import 'package:rak_app/shared/widgets/custom_back_button.dart';
 import 'package:rak_app/shared/widgets/combined_logo_widget.dart';
+import 'package:rak_app/core/utils/snackbar_utils.dart';
 
 class LoginWithPasswordScreen extends StatefulWidget {
   const LoginWithPasswordScreen({super.key});
@@ -108,6 +108,7 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
         final dummyUser = UserData(
           emplName: 'Administrator',
           areaCode: 'ADM',
+          deptCode: '',
           roles: ['ADMIN'],
           pages: ['DASHBOARD'],
           userID: 'admin',
@@ -194,15 +195,7 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
   // Navigation is simplified: post-login we now redirect to '/home'.
 
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.all(16.w),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.r)),
-      ),
-    );
+    AppSnackBar.showError(context, message);
   }
 
   @override
@@ -315,11 +308,11 @@ class _LoginWithPasswordScreenState extends State<LoginWithPasswordScreen>
                 horizontal: (size * 0.04).clamp(4, 8),
               ),
               child: CombinedLogoWidget(
-                  height: (size * 1.0).clamp(120, 220),
-                  width: (size * 1.8).clamp(200, 400),
-                  fit: BoxFit.contain,
-                  isCircular: false,
-                  showBorder: false,
+                height: (size * 1.0).clamp(120, 220),
+                width: (size * 1.8).clamp(200, 400),
+                fit: BoxFit.contain,
+                isCircular: false,
+                showBorder: false,
               ),
             ),
           ),
@@ -952,19 +945,19 @@ class _ModernButtonState extends State<ModernButton> {
                         backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                       ).copyWith(
-                        backgroundColor: WidgetStateProperty.resolveWith((
+                        backgroundColor: MaterialStateProperty.resolveWith((
                           states,
                         ) {
-                          if (states.contains(WidgetState.disabled)) {
+                          if (states.contains(MaterialState.disabled)) {
                             return Colors.grey.shade400;
                           }
-                          if (states.contains(WidgetState.pressed)) {
+                          if (states.contains(MaterialState.pressed)) {
                             return Colors.blue.shade700;
                           }
                           return Colors.blue;
                         }),
-                        elevation: WidgetStateProperty.resolveWith((states) {
-                          if (states.contains(WidgetState.pressed)) {
+                        elevation: MaterialStateProperty.resolveWith((states) {
+                          if (states.contains(MaterialState.pressed)) {
                             return 2;
                           }
                           return 4;
@@ -1013,10 +1006,10 @@ class _ModernButtonState extends State<ModernButton> {
                         ),
                         backgroundColor: Colors.transparent,
                       ).copyWith(
-                        backgroundColor: WidgetStateProperty.resolveWith((
+                        backgroundColor: MaterialStateProperty.resolveWith((
                           states,
                         ) {
-                          if (states.contains(WidgetState.pressed)) {
+                          if (states.contains(MaterialState.pressed)) {
                             return widget.isDark
                                 ? Colors.grey.shade800.withOpacity(0.7)
                                 : Colors.grey.shade100;

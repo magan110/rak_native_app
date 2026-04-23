@@ -1,89 +1,95 @@
 class PainterRegistrationRequest {
-  // Personal
+  // Required / backend-aligned fields
+  final String? loginId;
   final String? firstName;
   final String? middleName;
   final String? lastName;
-  final String? mobileNumber;
-  final String? address;
-  final String? area;
+  final String? emirateCode;
   final String? emirates;
-  final String? reference;
-  final String? password;
-
-  // Emirates ID Details
-  final String? emiratesIdNumber;
-  final String? idName; // Name on ID
-  final String? dateOfBirth; // yyyy-MM-dd preferred
-  final String? nationality;
-  final String? companyDetails; // Employer
-  final String? issueDate; // yyyy-MM-dd or string
-  final String? expiryDate; // yyyy-MM-dd or string
-  final String? occupation;
-
-  // Bank (optional)
-  final String? accountHolderName;
-  final String? ibanNumber;
+  final String? areaCode;
+  final String? areaName;
+  final String? subAreaCode;
+  final String? subAreaName;
+  final String? poBox;
+  final String? address;
+  final String? mobileNumber;
+  final String? dateOfBirth;
   final String? bankName;
   final String? branchName;
+  final String? accountHolderName;
+  final String? reference;
+  final String? ibanNumber;
+  final String? emiratesIdNumber;
+  final String? idName;
+  final String? nationality;
+  final String? companyDetails;
+  final String? issueDate;
+  final String? expiryDate;
+  final String? occupation;
   final String? bankAddress;
 
   PainterRegistrationRequest({
+    this.loginId,
     this.firstName,
     this.middleName,
     this.lastName,
-    this.mobileNumber,
-    this.address,
-    this.area,
+    this.emirateCode,
     this.emirates,
+    this.areaCode,
+    this.areaName,
+    this.subAreaCode,
+    this.subAreaName,
+    this.poBox,
+    this.address,
+    this.mobileNumber,
+    this.dateOfBirth,
+    this.bankName,
+    this.branchName,
+    this.accountHolderName,
     this.reference,
-    this.password,
+    this.ibanNumber,
     this.emiratesIdNumber,
     this.idName,
-    this.dateOfBirth,
     this.nationality,
     this.companyDetails,
     this.issueDate,
     this.expiryDate,
     this.occupation,
-    this.accountHolderName,
-    this.ibanNumber,
-    this.bankName,
-    this.branchName,
     this.bankAddress,
   });
 
-  // empty string for null/blank
-  String _empty(String? v) => (v == null || v.trim().isEmpty) ? '' : v.trim();
+  String? _nullIfEmpty(String? v) =>
+      (v == null || v.trim().isEmpty) ? null : v.trim();
 
   Map<String, dynamic> toJson() => {
-    // Personal
-    "firstName": _empty(firstName),
-    "middleName": _empty(middleName),
-    "lastName": _empty(lastName),
-    "mobileNumber": _empty(mobileNumber),
-    "address": _empty(address),
-    "area": _empty(area),
-    "emirates": _empty(emirates),
-    "reference": _empty(reference),
-    "password": _empty(password),
-
-    // Emirates ID
-    "emiratesIdNumber": _empty(emiratesIdNumber),
-    "idName": _empty(idName),
-    "dateOfBirth": _empty(dateOfBirth),
-    "nationality": _empty(nationality),
-    "companyDetails": _empty(companyDetails),
-    "issueDate": _empty(issueDate),
-    "expiryDate": _empty(expiryDate),
-    "occupation": _empty(occupation),
-
-    // Bank
-    "accountHolderName": _empty(accountHolderName),
-    "ibanNumber": _empty(ibanNumber),
-    "bankName": _empty(bankName),
-    "branchName": _empty(branchName),
-    "bankAddress": _empty(bankAddress),
-  };
+    'LoginId': _nullIfEmpty(loginId),
+    'FirstName': _nullIfEmpty(firstName),
+    'MiddleName': _nullIfEmpty(middleName),
+    'LastName': _nullIfEmpty(lastName),
+    'EmirateCode': _nullIfEmpty(emirateCode),
+    'Emirates': _nullIfEmpty(emirates),
+    'AreaCode': _nullIfEmpty(areaCode),
+    'AreaName': _nullIfEmpty(areaName),
+    'SubAreaCode': _nullIfEmpty(subAreaCode),
+    'SubAreaName': _nullIfEmpty(subAreaName),
+    'PoBox': _nullIfEmpty(poBox),
+    'Address': _nullIfEmpty(address),
+    'MobileNumber': _nullIfEmpty(mobileNumber),
+    'DateOfBirth': _nullIfEmpty(dateOfBirth),
+    'BankName': _nullIfEmpty(bankName),
+    'BranchName': _nullIfEmpty(branchName),
+    'AccountHolderName': _nullIfEmpty(accountHolderName),
+    'Reference': _nullIfEmpty(reference),
+    'IbanNumber': _nullIfEmpty(ibanNumber),
+    'EmiratesIdNumber': _nullIfEmpty(emiratesIdNumber),
+    'IdName': _nullIfEmpty(idName),
+    'Nationality': _nullIfEmpty(nationality),
+    'CompanyDetails': _nullIfEmpty(companyDetails),
+    'IssueDate': _nullIfEmpty(issueDate),
+    'ExpiryDate': _nullIfEmpty(expiryDate),
+    'Occupation': _nullIfEmpty(occupation),
+    'BankAddress': _nullIfEmpty(bankAddress),
+  }..removeWhere((k, v) => v == null);
 }
 
 class PainterRegistrationResponse {
@@ -114,8 +120,40 @@ class EmirateItem {
 
   factory EmirateItem.fromJson(Map<String, dynamic> json) {
     return EmirateItem(
-      id: json['code']?.toString() ?? '',
-      name: json['desc']?.toString() ?? '',
+      id: json['Code']?.toString() ?? json['code']?.toString() ?? '',
+      name: json['Name']?.toString() ?? json['name']?.toString() ?? '',
+    );
+  }
+}
+
+class AreaItem {
+  final String code;
+  final String name;
+  final String poBox;
+
+  AreaItem({required this.code, required this.name, required this.poBox});
+
+  factory AreaItem.fromJson(Map<String, dynamic> json) {
+    return AreaItem(
+      code: json['Code']?.toString() ?? json['code']?.toString() ?? '',
+      name: json['Name']?.toString() ?? json['name']?.toString() ?? '',
+      poBox: json['PoBox']?.toString() ?? json['pobox']?.toString() ?? '',
+    );
+  }
+}
+
+class SubAreaItem {
+  final String code;
+  final String name;
+  final String poBox;
+
+  SubAreaItem({required this.code, required this.name, required this.poBox});
+
+  factory SubAreaItem.fromJson(Map<String, dynamic> json) {
+    return SubAreaItem(
+      code: json['Code']?.toString() ?? json['code']?.toString() ?? '',
+      name: json['Name']?.toString() ?? json['name']?.toString() ?? '',
+      poBox: json['PoBox']?.toString() ?? json['pobox']?.toString() ?? '',
     );
   }
 }

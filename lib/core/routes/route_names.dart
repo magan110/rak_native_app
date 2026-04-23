@@ -34,5 +34,34 @@ class RouteNames {
   // Admin screens
   static const String adminUserEdit = '/admin-user-edit';
 
-  // Add more route names as needed
+  // Trade Partner Journey
+  static const String tradePartnerHome = '/trade-partner-home';
+  static const String products = '/products';
+  static const String placeOrder = '/place-order';
+  static const String orders = '/orders';
+  static const String orderDetails = '/order/:orderId';
+  static const String ledger = '/ledger';
+  static const String schemes = '/schemes';
+  static const String grievances = '/grievances';
+  static const String grievanceDetails = '/grievance/:grievanceId';
+
+  // Stock Visibility
+  static const String stockEntry = '/stock-entry';
+  static const String agingStock = '/aging-stock';
+
+  // Market Mapping
+  static const String marketMappingHome = '/market-mapping-home';
+  static const String competitorPricing = '/competitor-pricing';
+  static const String newLaunches = '/new-launches';
+  static const String discountTracking = '/discount-tracking';
+  static const String marketIntelligence = '/market-intelligence';
+
+  // Sales Monitoring
+  static const String salesMonitoringHome = '/sales-monitoring-home';
+  static const String counterMapping = '/counter-mapping';
+  static const String visitPlanning = '/visit-planning';
+  static const String routeTracking = '/route-tracking';
+
+  // Product Journey Tracking
+  static const String productJourney = '/product-journey';
 }

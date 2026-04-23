@@ -2,7 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
+import 'package:rak_app/core/services/location_service.dart';
+import 'package:rak_app/core/utils/snackbar_utils.dart';
 import 'package:rak_app/shared/widgets/file_upload_widget.dart';
 import 'package:rak_app/shared/widgets/custom_back_button.dart';
 
@@ -52,6 +55,24 @@ class _RetailerOnboardingScreenState extends State<RetailerOnboardingScreen>
       end: 1.0,
     ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _animController.forward();
+
+    // Auto-fill location on load
+    _initLocation();
+  }
+
+  Future<void> _initLocation() async {
+    setState(() => _isGettingLocation = true);
+    try {
+      Position? position = await LocationService.getCurrentLocation();
+      if (position != null && mounted) {
+        _latitudeController.text = position.latitude.toStringAsFixed(6);
+        _longitudeController.text = position.longitude.toStringAsFixed(6);
+      }
+    } catch (e) {
+      print('Error getting location: $e');
+    } finally {
+      if (mounted) setState(() => _isGettingLocation = false);
+    }
   }
 
   @override
@@ -69,9 +90,7 @@ class _RetailerOnboardingScreenState extends State<RetailerOnboardingScreen>
 
   void _showSnack(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
-    );
+    AppSnackBar.showInfo(context, msg);
   }
 
   Future<void> _submit() async {
@@ -551,11 +570,7 @@ class _RetailerOnboardingScreenState extends State<RetailerOnboardingScreen>
                                 ? null
                                 : () async {
                                     HapticFeedback.selectionClick();
-                                    setState(() => _isGettingLocation = true);
-                                    await Future.delayed(
-                                      const Duration(milliseconds: 500),
-                                    );
-                                    setState(() => _isGettingLocation = false);
+                                    await _initLocation();
                                   },
                           ),
                         ),
@@ -572,11 +587,7 @@ class _RetailerOnboardingScreenState extends State<RetailerOnboardingScreen>
                                 ? null
                                 : () async {
                                     HapticFeedback.selectionClick();
-                                    setState(() => _isGettingLocation = true);
-                                    await Future.delayed(
-                                      const Duration(milliseconds: 500),
-                                    );
-                                    setState(() => _isGettingLocation = false);
+                                    await _initLocation();
                                   },
                           ),
                         ),

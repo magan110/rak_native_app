@@ -4,8 +4,10 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/routes/route_names.dart';
 import '../../../../../core/services/contractor_service.dart';
+import '../../../../../core/services/auth_service.dart';
 import '../../../../../core/models/contractor_models.dart';
 import '../../../../../core/models/user_profile_models.dart';
+import '../../../../../core/models/auth_models.dart';
 import '../../../../../shared/widgets/custom_back_button.dart';
 import '../../../../../shared/widgets/modern_dropdown.dart';
 import '../../../../../shared/widgets/responsive_widgets.dart';
@@ -17,7 +19,7 @@ class ContractorUpdateScreen extends StatefulWidget {
   final String? completionMessage;
 
   const ContractorUpdateScreen({
-    super.key, 
+    super.key,
     required this.mobileNumber,
     this.userProfile,
     this.missingFields,
@@ -87,6 +89,18 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
   String? _selectedLicenseType;
   String? _selectedIssuingAuthority;
 
+  // Master location lists and selection codes/names
+  List<EmirateItem> _emiratesList = [];
+  List<AreaItem> _areasList = [];
+  List<SubAreaItem> _subAreasList = [];
+  String? _selectedEmirateCode;
+  String? _selectedArea;
+  String? _selectedAreaCode;
+  String? _selectedSubArea;
+  String? _selectedSubAreaCode;
+  bool _hasSubArea = false;
+  final TextEditingController _poBoxController = TextEditingController();
+
   // State flags
   bool _isSubmitting = false;
   bool _isLoading = true;
@@ -128,7 +142,7 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
     _mobileController.text = widget.mobileNumber;
 
     // Load existing data
-    _loadExistingData();
+    _loadEmirates().whenComplete(() => _loadExistingData());
   }
 
   @override
@@ -136,6 +150,7 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
     _mainController.dispose();
     _fabController.dispose();
     _firstNameController.dispose();
+    _poBoxController.dispose();
     _middleNameController.dispose();
     _lastNameController.dispose();
     _mobileController.dispose();
@@ -178,13 +193,13 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
 
       if (response.success && response.data != null) {
         final data = response.data!;
+        // Fill basic fields first
         setState(() {
           _selectedContractorType = data.contractorType;
           _firstNameController.text = data.firstName ?? '';
           _middleNameController.text = data.middleName ?? '';
           _lastNameController.text = data.lastName ?? '';
           _addressController.text = data.address ?? '';
-          _selectedEmirate = data.emirates;
           _accountHolderController.text = data.accountHolderName ?? '';
           _ibanController.text = data.ibanNumber ?? '';
           _bankNameController.text = data.bankName ?? '';
@@ -202,8 +217,73 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
           _responsiblePersonController.text = data.responsiblePerson ?? '';
           _effectiveRegDateController.text = data.effectiveDate ?? '';
           _effectiveVatDateController.text = data.vatEffectiveDate ?? '';
-          _isLoading = false;
         });
+
+        // Master-aware selection: emirate -> areas -> subareas
+        try {
+          _selectedEmirateCode = data.emirateCode ?? data.emirates;
+          // Map to emirate name if we have the list
+          if (_selectedEmirateCode != null && _emiratesList.isNotEmpty) {
+            final match = _emiratesList.firstWhere(
+              (e) => e.code == _selectedEmirateCode,
+              orElse: () => EmirateItem(code: '', name: ''),
+            );
+            if (match.code.isNotEmpty) _selectedEmirate = match.name;
+          } else {
+            _selectedEmirate = data.emirateName ?? data.emirates;
+          }
+
+          if (_selectedEmirateCode != null &&
+              _selectedEmirateCode!.isNotEmpty) {
+            await _fetchAreasForEmirate(_selectedEmirateCode!);
+          }
+
+          // Select area
+          _selectedAreaCode = data.areaCode ?? data.area;
+          if (_selectedAreaCode != null && _areasList.isNotEmpty) {
+            final a = _areasList.firstWhere(
+              (x) => x.code == _selectedAreaCode,
+              orElse: () => AreaItem(code: '', name: '', poBox: ''),
+            );
+            if (a.code.isNotEmpty) {
+              _selectedArea = a.name;
+            } else {
+              _selectedArea = data.areaName ?? data.area;
+            }
+          }
+
+          if (_selectedAreaCode != null && _selectedAreaCode!.isNotEmpty) {
+            await _fetchSubAreasForArea(_selectedAreaCode!);
+          }
+
+          // Select subarea if present
+          _selectedSubAreaCode = data.subAreaCode;
+          if (_selectedSubAreaCode != null && _subAreasList.isNotEmpty) {
+            final s = _subAreasList.firstWhere(
+              (x) => x.code == _selectedSubAreaCode,
+              orElse: () => SubAreaItem(code: '', name: '', poBox: ''),
+            );
+            if (s.code.isNotEmpty) {
+              _selectedSubArea = s.name;
+              _poBoxController.text = s.poBox;
+            }
+          }
+
+          // If no subarea, use area PoBox
+          if ((_selectedSubAreaCode == null || _selectedSubAreaCode!.isEmpty) &&
+              _selectedAreaCode != null) {
+            final a = _areasList.firstWhere(
+              (x) => x.code == _selectedAreaCode,
+              orElse: () => AreaItem(code: '', name: '', poBox: ''),
+            );
+            _poBoxController.text = a.poBox;
+          }
+
+          setState(() => _isLoading = false);
+        } catch (e) {
+          // fallback
+          setState(() => _isLoading = false);
+        }
       } else {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -225,6 +305,58 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
           backgroundColor: Colors.red,
         ),
       );
+    }
+  }
+
+  Future<void> _loadEmirates() async {
+    try {
+      final list = await ContractorService.getEmiratesList();
+      setState(() => _emiratesList = list);
+    } catch (e) {
+      print('Failed to load emirates: ${e.toString()}');
+    }
+  }
+
+  Future<void> _fetchAreasForEmirate(String emirateCode) async {
+    try {
+      _areasList = await ContractorService.getAreasListByEmirate(emirateCode);
+      setState(() {
+        _subAreasList = [];
+        _selectedArea = null;
+        _selectedAreaCode = null;
+        _selectedSubArea = null;
+        _selectedSubAreaCode = null;
+        _hasSubArea = false;
+        _poBoxController.text = '';
+      });
+    } catch (e) {
+      print('Failed to load areas: ${e.toString()}');
+      setState(() => _areasList = []);
+    }
+  }
+
+  Future<void> _fetchSubAreasForArea(String areaCode) async {
+    try {
+      final res = await ContractorService.getSubAreasListByArea(areaCode);
+      setState(() {
+        _hasSubArea = res['hasSubArea'] == true;
+        _subAreasList = (res['data'] as List<SubAreaItem>?) ?? [];
+        if (!_hasSubArea) {
+          final area = _areasList.firstWhere(
+            (a) => a.code == areaCode,
+            orElse: () => AreaItem(code: '', name: '', poBox: ''),
+          );
+          _poBoxController.text = area.poBox;
+        } else {
+          _poBoxController.text = '';
+        }
+      });
+    } catch (e) {
+      print('Failed to load subareas: ${e.toString()}');
+      setState(() {
+        _subAreasList = [];
+        _hasSubArea = false;
+      });
     }
   }
 
@@ -608,8 +740,17 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
         _mobileController.text,
       ),
       address: _addressController.text.trim(),
-      area: '',
-      emirates: _selectedEmirate ?? '',
+
+      // Master location
+      emirateCode: _selectedEmirateCode,
+      emirateName: _selectedEmirate,
+      areaCode: _selectedAreaCode,
+      areaName: _selectedArea,
+      hasSubArea: _hasSubArea,
+      subAreaCode: _selectedSubAreaCode,
+      subAreaName: _selectedSubArea,
+      poBox: _poBoxController.text.trim(),
+
       profilePhoto: '', // File uploads not implemented in update
       password: '', // Not updating password
       contractorCertificate: '', // File uploads not implemented in update
@@ -651,10 +792,34 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
     messenger.showSnackBar(loading);
 
     try {
-      final resp = await ContractorService.updateContractor(req);
+      final resp = await ContractorService.updateContractorByMobile(
+        widget.mobileNumber,
+        req,
+      );
       messenger.hideCurrentSnackBar();
 
       if (resp.success) {
+        // Update AuthManager with new user name
+        final currentUser = AuthManager.currentUser;
+        if (currentUser != null) {
+          final fullName = '${req.firstName} ${req.middleName} ${req.lastName}'
+              .trim()
+              .replaceAll(RegExp(r'\s+'), ' ');
+          final updatedUser = UserData(
+            emplName: fullName,
+            // Use real codes; do not derive areaCode from emirate text.
+            areaCode: (req.areaCode != null && req.areaCode!.isNotEmpty)
+                ? req.areaCode!
+                : currentUser.areaCode,
+            deptCode: currentUser.deptCode,
+            roles: currentUser.roles,
+            pages: currentUser.pages,
+            userID: currentUser.userID,
+            appRegId: currentUser.appRegId,
+          );
+          AuthManager.setUser(updatedUser);
+        }
+
         messenger.showSnackBar(
           SnackBar(
             content: Row(
@@ -678,7 +843,9 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
         // Navigate back to previous screen after short delay
         await Future.delayed(const Duration(seconds: 1));
         if (mounted) {
-          Navigator.of(context).pop(true); // Return true to indicate successful update
+          Navigator.of(
+            context,
+          ).pop(true); // Return true to indicate successful update
         }
       } else {
         messenger.showSnackBar(
@@ -837,21 +1004,71 @@ class _ContractorUpdateScreenState extends State<ContractorUpdateScreen>
         ModernDropdown(
           label: 'Emirates',
           icon: Icons.public_outlined,
-          items: const [
-            'Dubai',
-            'Abu Dhabi',
-            'Sharjah',
-            'Ajman',
-            'Umm Al Quwain',
-            'Ras Al Khaimah',
-            'Fujairah',
-          ],
+          items: _emiratesList.map((e) => e.name).toList(),
           value: _selectedEmirate,
-          onChanged: (String? value) {
+          onChanged: (String? value) async {
             setState(() {
               _selectedEmirate = value;
+              _selectedEmirateCode = _emiratesList
+                  .firstWhere(
+                    (e) => e.name == value,
+                    orElse: () => EmirateItem(code: '', name: ''),
+                  )
+                  .code;
+            });
+            if (_selectedEmirateCode != null &&
+                _selectedEmirateCode!.isNotEmpty) {
+              await _fetchAreasForEmirate(_selectedEmirateCode!);
+            }
+          },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        ModernDropdown(
+          label: 'Area',
+          icon: Icons.location_city_outlined,
+          items: _areasList.map((a) => a.name).toList(),
+          value: _selectedArea,
+          isRequired: true,
+          onChanged: (String? value) async {
+            setState(() {
+              _selectedArea = value;
+              final area = _areasList.firstWhere(
+                (a) => a.name == value,
+                orElse: () => AreaItem(code: '', name: '', poBox: ''),
+              );
+              _selectedAreaCode = area.code;
+            });
+            if (_selectedAreaCode != null && _selectedAreaCode!.isNotEmpty) {
+              await _fetchSubAreasForArea(_selectedAreaCode!);
+            }
+          },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        ModernDropdown(
+          label: 'Sub Area',
+          icon: Icons.map_outlined,
+          items: _subAreasList.map((s) => s.name).toList(),
+          value: _selectedSubArea,
+          isRequired: false,
+          onChanged: (String? value) {
+            setState(() {
+              _selectedSubArea = value;
+              final sub = _subAreasList.firstWhere(
+                (s) => s.name == value,
+                orElse: () => SubAreaItem(code: '', name: '', poBox: ''),
+              );
+              _selectedSubAreaCode = sub.code;
+              _poBoxController.text = sub.poBox;
             });
           },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        ResponsiveTextField(
+          label: 'PoBox',
+          icon: Icons.mail_outline,
+          controller: _poBoxController,
+          isRequired: false,
+          readOnly: true,
         ),
       ],
     );

@@ -1,19 +1,78 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:rak_app/core/providers/auth_provider.dart';
+import '../config/api_config.dart';
 import '../models/auth_models.dart';
 import '../utils/logger.dart';
+import '../network/ssl_http_client.dart';
 import 'storage_service.dart';
 
 class AuthService {
   static final AppLogger _logger = AppLogger();
   static const Duration _defaultTimeout = Duration(seconds: 30);
+  static http.Client? _httpClient;
 
-  static const String baseUrl = 'https://qa.birlawhite.com:55232';
+  static String get baseUrl => ApiConfig.baseUrl;
   static const String authEndpoint = '/api/Auth/execute';
   static const String loginEndpoint = '/api/Auth/login';
   static const String autoLoginEndpoint = '/api/Auth/auto-login';
   static const String logoutEndpoint = '/api/Auth/logout';
+
+  /// Force refresh the SSL client (useful after SSL errors)
+  static Future<void> refreshSslClient() async {
+    _logger.debug('Refreshing SSL client...');
+
+    // Close existing client
+    _httpClient?.close();
+    _httpClient = null;
+
+    // Dispose SSL client cache
+    SslHttpClient.dispose();
+
+    try {
+      // Create fresh SSL client
+      _httpClient = await SslHttpClient.getClient();
+      _logger.debug('SSL client refreshed successfully');
+    } catch (e) {
+      _logger.error('Failed to refresh SSL client: $e');
+      _httpClient = http.Client();
+    }
+  }
+
+  static Future<bool> testSslConnection() async {
+    try {
+      _logger.debug('Testing SSL connection to auth server...');
+
+      final client = await SslHttpClient.getClient();
+      final uri = Uri.parse('$baseUrl$loginEndpoint');
+
+      // Make a simple HEAD request to test connection
+      final response = await client
+          .head(uri)
+          .timeout(const Duration(seconds: 10));
+
+      _logger.debug('SSL test response: ${response.statusCode}');
+      return response.statusCode < 500;
+    } catch (e) {
+      _logger.error('SSL test failed: $e');
+      return false;
+    }
+  }
+
+  static Future<http.Client> _getClient() async {
+    try {
+      _logger.debug('AuthService: Getting SSL client...');
+      _httpClient ??= await SslHttpClient.getClient();
+      return _httpClient!;
+    } catch (e) {
+      _logger.error(
+        'AuthService: Failed to get SSL client, using fallback: $e',
+      );
+      _httpClient = http.Client();
+      return _httpClient!;
+    }
+  }
 
   static Future<Map<String, dynamic>> authenticateUser({
     required String userID,
@@ -22,6 +81,13 @@ class AuthService {
   }) async {
     try {
       _logger.info('Authenticating user: $userID');
+
+      // Test SSL connection first
+      _logger.debug('Testing SSL connection to server...');
+      final sslTestResult = await SslHttpClient.testConnection(
+        '$baseUrl/api/Auth/login',
+      );
+      _logger.debug('SSL test result: ${sslTestResult ? 'SUCCESS' : 'FAILED'}');
 
       // Generate or use provided appRegId
       final finalAppRegId = appRegId ?? StorageService.generateAppRegId();
@@ -41,16 +107,14 @@ class AuthService {
       final requestBody = jsonEncode(loginRequest.toJson());
 
       _logger.debug('Making POST request to: $uri');
-      _logger.debug('Request headers: $requestHeaders');
-      _logger.debug('Request body: $requestBody');
+      // NOTE: Request body intentionally not logged — contains credentials
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(uri, headers: requestHeaders, body: requestBody)
           .timeout(_defaultTimeout);
 
       _logger.debug('Response status: ${response.statusCode}');
-      _logger.debug('Response headers: ${response.headers}');
-      _logger.debug('Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body) as Map<String, dynamic>;
@@ -63,7 +127,8 @@ class AuthService {
             // Create UserData with appRegId
             final userDataWithAppRegId = UserData(
               emplName: userData['emplName'] as String,
-              areaCode: userData['areaCode'] as String,
+              areaCode: (userData['areaCode'] ?? '').toString(),
+              deptCode: (userData['deptCode'] ?? '').toString(),
               roles: (userData['roles'] as List<dynamic>).cast<String>(),
               pages: (userData['pages'] as List<dynamic>).cast<String>(),
               userID: userData['userID'] as String? ?? userID,
@@ -118,7 +183,7 @@ class AuthService {
             : 'Invalid request parameters';
 
         _logger.warning('Bad request for user: $userID - $errorMessage');
-        _logger.warning('Request was: $requestBody');
+        // NOTE: Request body intentionally not logged — may contain credentials
 
         return {
           'success': false,
@@ -157,6 +222,36 @@ class AuthService {
       };
     } catch (e) {
       _logger.error('Unexpected error during authentication', e);
+
+      // Handle SSL-specific errors
+      if (e.toString().contains('HandshakeException') ||
+          e.toString().contains('CERTIFICATE_VERIFY_FAILED')) {
+        _logger.warning(
+          'SSL Error detected, attempting to recreate SSL client...',
+        );
+
+        // Clear the cached client and try to recreate it
+        _httpClient?.close();
+        _httpClient = null;
+
+        try {
+          // Try to get a fresh SSL client
+          final newClient = await SslHttpClient.createClient();
+          _httpClient = newClient;
+          _logger.debug('Fresh SSL client created, you may retry the login');
+        } catch (sslError) {
+          _logger.error('Failed to create fresh SSL client: $sslError');
+        }
+
+        return {
+          'success': false,
+          'error':
+              'SSL connection failed. Please check your internet connection and try again.',
+          'statusCode': 0,
+          'ssl_error': true,
+        };
+      }
+
       return {
         'success': false,
         'error': 'An unexpected error occurred: ${e.toString()}',
@@ -191,14 +286,15 @@ class AuthService {
       final requestBody = jsonEncode(autoLoginRequest.toJson());
 
       _logger.debug('Making auto-login POST request to: $uri');
-      _logger.debug('Request body: $requestBody');
+      // NOTE: Auto-login request body not logged for security
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(uri, headers: requestHeaders, body: requestBody)
           .timeout(_defaultTimeout);
 
       _logger.debug('Auto-login response status: ${response.statusCode}');
-      _logger.debug('Auto-login response body: ${response.body}');
+      // NOTE: Auto-login response body not logged for security
 
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body) as Map<String, dynamic>;
@@ -211,7 +307,8 @@ class AuthService {
             // Create UserData with appRegId
             final userDataWithAppRegId = UserData(
               emplName: userData['emplName'] as String,
-              areaCode: userData['areaCode'] as String,
+              areaCode: (userData['areaCode'] ?? '').toString(),
+              deptCode: (userData['deptCode'] ?? '').toString(),
               roles: (userData['roles'] as List<dynamic>).cast<String>(),
               pages: (userData['pages'] as List<dynamic>).cast<String>(),
               userID: userData['userID'] as String?,
@@ -324,7 +421,8 @@ class AuthService {
       _logger.info('Testing connection to auth server');
 
       final uri = Uri.parse('$baseUrl/health');
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .get(uri, headers: {'Accept': 'application/json'})
           .timeout(const Duration(seconds: 10));
 
@@ -369,7 +467,8 @@ class AuthService {
         'Accept': 'application/json',
       };
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .get(uri, headers: requestHeaders)
           .timeout(const Duration(seconds: 10));
 
@@ -411,7 +510,8 @@ class AuthService {
         'Accept': 'application/json',
       };
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(uri, headers: requestHeaders)
           .timeout(const Duration(seconds: 10));
 
@@ -463,7 +563,8 @@ class AuthService {
 
       final requestBody = jsonEncode(logoutRequest.toJson());
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(uri, headers: requestHeaders, body: requestBody)
           .timeout(const Duration(seconds: 10));
 
@@ -485,67 +586,51 @@ class AuthService {
 }
 
 class AuthManager {
-  static UserData? _currentUser;
-  static String? _authToken;
-  static final _authChangeNotifier = ValueNotifier<int>(0);
+  // Internal AuthProvider instance — will be exposed via Provider package later
+  static final AuthProvider _provider = AuthProvider();
 
-  static UserData? get currentUser => _currentUser;
-  static String? get authToken => _authToken;
-  static bool get isLoggedIn => _currentUser != null;
+  /// Get the underlying AuthProvider (for future Provider integration)
+  static AuthProvider get provider => _provider;
+
+  // --- Legacy ValueNotifier for backward compatibility ---
+  static final _authChangeNotifier = ValueNotifier<int>(0);
   static ValueNotifier<int> get authChangeNotifier => _authChangeNotifier;
 
+  // --- Delegated getters ---
+  static UserData? get currentUser => _provider.currentUser;
+  static String? get authToken => _provider.authToken;
+  static bool get isLoggedIn => _provider.isLoggedIn;
+
+  // --- Delegated setters ---
   static void setUser(UserData userData, {String? token}) {
-    _currentUser = userData;
-    _authToken = token;
-    _notifyAuthChanged();
+    _provider.setUser(userData, token: token);
+    _authChangeCallback?.call();
+    _authChangeNotifier.value++;
   }
 
   static void clearUser() {
-    _currentUser = null;
-    _authToken = null;
-    _notifyAuthChanged();
+    _provider.clearUser();
+    _authChangeCallback?.call();
+    _authChangeNotifier.value++;
   }
 
+  // --- Auth change callback (legacy) ---
   static void Function()? _authChangeCallback;
 
   static void setAuthChangeCallback(void Function() callback) {
     _authChangeCallback = callback;
   }
 
-  static void _notifyAuthChanged() {
-    _authChangeCallback?.call();
-    _authChangeNotifier.value++;
-  }
+  // --- Delegated role/page checks ---
+  static bool hasRole(String role) => _provider.hasRole(role);
+  static bool hasPage(String page) => _provider.hasPage(page);
+  static bool hasAnyRole(List<String> roles) => _provider.hasAnyRole(roles);
+  static bool hasAnyPage(List<String> pages) => _provider.hasAnyPage(pages);
 
-  static bool hasRole(String role) {
-    return _currentUser?.hasRole(role) ?? false;
-  }
-
-  static bool hasPage(String page) {
-    return _currentUser?.hasPage(page) ?? false;
-  }
-
-  static bool hasAnyRole(List<String> roles) {
-    return _currentUser?.hasAnyRole(roles) ?? false;
-  }
-
-  static bool hasAnyPage(List<String> pages) {
-    return _currentUser?.hasAnyPage(pages) ?? false;
-  }
-
-  static List<String> getUserRoles() {
-    return _currentUser?.roles ?? [];
-  }
-
-  static List<String> getUserPages() {
-    return _currentUser?.pages ?? [];
-  }
-
-  static String getUserName() {
-    return _currentUser?.emplName ?? '';
-  }
-
-  static String getUserAreaCode() {
-    return _currentUser?.areaCode ?? '';
-  }
+  // --- Delegated convenience getters ---
+  static List<String> getUserRoles() => _provider.userRoles;
+  static List<String> getUserPages() => _provider.userPages;
+  static String getUserName() => _provider.userName;
+  static String getUserAreaCode() => _provider.userAreaCode;
+  static String getUserDeptCode() => _provider.userDeptCode;
 }

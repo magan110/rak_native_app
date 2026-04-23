@@ -5,9 +5,14 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/services/auth_service.dart';
 import 'package:rak_app/core/services/painter_service.dart';
+import 'package:rak_app/core/services/profile_details_service.dart';
+import 'package:rak_app/core/services/kyc_status_service.dart';
+import 'package:rak_app/core/models/kyc_status_models.dart';
 import 'package:rak_app/core/utils/responsive_utils.dart';
 import 'package:rak_app/shared/widgets/congratulations_dialog.dart';
 import 'package:rak_app/shared/widgets/combined_logo_widget.dart';
+import 'package:rak_app/shared/widgets/kyc_status_widget.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Contractor Home Screen - reimplemented to match `HomeScreen` UI exactly
 class PainterHomeScreen extends StatefulWidget {
@@ -47,12 +52,18 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
   late Animation<Offset> _slideAnimation;
   late Animation<double> _scaleAnimation;
 
+  // KYC Status
+  KycStatusResponse? _kycStatus;
+  bool _isCheckingKycStatus = false;
+  String? _userMobile;
+
   @override
   void initState() {
     super.initState();
     _startAutoScroll();
     _initializeAnimations();
     _startAnimations();
+    _loadUserMobileAndCheckStatus();
 
     // Show congratulations dialog for new registrations
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -112,6 +123,43 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
     _fadeAnimationController.forward();
     _slideAnimationController.forward();
     _scaleAnimationController.forward();
+  }
+
+  Future<void> _loadUserMobileAndCheckStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final mobile =
+          prefs.getString('user_mobile') ??
+          prefs.getString('contractor_mobile') ??
+          prefs.getString('painter_mobile');
+
+      if (mobile != null && mobile.isNotEmpty) {
+        setState(() => _userMobile = mobile);
+        _checkKycStatus();
+      }
+    } catch (e) {
+      // Silently fail - status widget just won't show
+    }
+  }
+
+  Future<void> _checkKycStatus() async {
+    if (_userMobile == null || _isCheckingKycStatus) return;
+
+    setState(() => _isCheckingKycStatus = true);
+
+    try {
+      final status = await KycStatusService.getKycStatusByMobile(_userMobile!);
+      if (mounted) {
+        setState(() {
+          _kycStatus = status;
+          _isCheckingKycStatus = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCheckingKycStatus = false);
+      }
+    }
   }
 
   @override
@@ -185,8 +233,6 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
   }
 
   PreferredSizeWidget _buildAppBar() {
-    final userName = widget.registeredName ?? 'Guest';
-
     return AppBar(
       backgroundColor: Colors.white,
       elevation: 0,
@@ -221,47 +267,56 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
           ),
         ),
       ),
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+      title: ValueListenableBuilder<int>(
+        valueListenable: AuthManager.authChangeNotifier,
+        builder: (context, _, __) {
+          final currentUser = AuthManager.currentUser;
+          final userName =
+              currentUser?.emplName ?? widget.registeredName ?? 'Guest';
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'Hello, ',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                  color: Colors.grey[600],
-                ),
-              ),
-              Flexible(
-                child: Text(
-                  userName.split(' ').first,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E3A8A),
+              Row(
+                children: [
+                  Text(
+                    'Hello, ',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.grey[600],
+                    ),
                   ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
+                  Flexible(
+                    child: Text(
+                      userName.split(' ').first,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1E3A8A),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                  const Text(' 👋', style: TextStyle(fontSize: 16)),
+                ],
               ),
-              const Text(' 👋', style: TextStyle(fontSize: 16)),
+              const SizedBox(height: 2),
+              Text(
+                'Welcome back!',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  color: Colors.grey[500],
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
             ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'Welcome back!',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w400,
-              color: Colors.grey[500],
-            ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-          ),
-        ],
+          );
+        },
       ),
       actions: [
         // Search Button
@@ -351,10 +406,27 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
   }
 
   Widget _buildDrawer() {
-    final userName = widget.registeredName ?? 'Guest User';
-    final userArea = widget.emirates ?? 'N/A';
-    final userInitial = userName.isNotEmpty ? userName[0].toUpperCase() : 'G';
+    return ValueListenableBuilder<int>(
+      valueListenable: AuthManager.authChangeNotifier,
+      builder: (context, _, __) {
+        final currentUser = AuthManager.currentUser;
+        final userName =
+            currentUser?.emplName ?? widget.registeredName ?? 'Guest User';
+        final userArea = currentUser?.areaCode ?? widget.emirates ?? 'N/A';
+        final userInitial = userName.isNotEmpty
+            ? userName[0].toUpperCase()
+            : 'G';
 
+        return _buildDrawerContent(userName, userArea, userInitial);
+      },
+    );
+  }
+
+  Widget _buildDrawerContent(
+    String userName,
+    String userArea,
+    String userInitial,
+  ) {
     return Drawer(
       backgroundColor: const Color(0xFFFAFAFA),
       width: MediaQuery.of(context).size.width * 0.85,
@@ -508,8 +580,8 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
           onTap();
         },
         leading: Container(
-          height: 40.h,
-          width: 40.w,
+          height: 36.h,
+          width: 36.w,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -525,35 +597,29 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
               width: 1.w,
             ),
           ),
-          child: Icon(icon, color: const Color(0xFF1E3A8A), size: 20.sp),
+          child: Icon(icon, color: const Color(0xFF1E3A8A), size: 18.sp),
         ),
         title: Text(
           title,
           style: TextStyle(
-            fontSize: 15.sp,
+            fontSize: 14.sp,
             fontWeight: FontWeight.w600,
             color: const Color(0xFF1F2937),
-            letterSpacing: 0.2,
+            letterSpacing: 0.1,
           ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        trailing: Container(
-          padding: EdgeInsets.all(4.w),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E3A8A).withOpacity(0.05),
-            borderRadius: BorderRadius.circular(6.r),
-          ),
-          child: Icon(
-            Icons.chevron_right_rounded,
-            color: const Color(0xFF1E3A8A),
-            size: 18.sp,
-          ),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: const Color(0xFF1E3A8A).withOpacity(0.6),
+          size: 20.sp,
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12.r),
         ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+        minLeadingWidth: 36.w,
       ),
     );
   }
@@ -604,6 +670,46 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
             children: [
               _buildWelcomeCard(isTablet: isTablet, screenWidth: screenWidth),
               SizedBox(height: isTablet ? 24.h : 20.h),
+              // KYC Status Widget
+              if (_kycStatus != null && _kycStatus!.success)
+                Padding(
+                  padding: EdgeInsets.only(bottom: isTablet ? 24.h : 20.h),
+                  child: KycStatusWidget(
+                    status: _kycStatus!,
+                    onRefresh: _checkKycStatus,
+                  ),
+                ),
+              if (_isCheckingKycStatus)
+                Padding(
+                  padding: EdgeInsets.only(bottom: isTablet ? 24.h : 20.h),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Checking approval status...',
+                            style: TextStyle(
+                              color: Colors.blue.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               _buildFeaturedProducts(
                 isTablet: isTablet,
                 isLandscape: isLandscape,
@@ -712,10 +818,7 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
               width: logoSize * 2.4,
               height: logoSize * 1.5,
               decoration: BoxDecoration(
-                border: Border.all(
-                  color: const Color(0xFF2C5282),
-                  width: 2.0,
-                ),
+                border: Border.all(color: const Color(0xFF2C5282), width: 2.0),
                 borderRadius: BorderRadius.circular((isTablet ? 14 : 12).r),
                 boxShadow: [
                   BoxShadow(
@@ -1135,7 +1238,7 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
               ),
               () => _buildMetricCard(
                 'Points',
-                '0',
+                '100',
                 '0',
                 const Color(0xFF60A5FA),
                 Icons.star,
@@ -1342,8 +1445,6 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
     );
   }
 
-
-
   Widget _buildBottomNavigation({
     required bool isTablet,
     required double screenWidth,
@@ -1475,10 +1576,6 @@ class _PainterHomeScreenState extends State<PainterHomeScreen>
   List<Widget> _buildDrawerItems({bool isMobile = false}) {
     // Contractor screen: always show a simplified contractor menu.
     return [
-      _buildDrawerItem(Icons.dashboard, 'Dashboard', () {
-        if (isMobile) context.pop();
-        context.push('/dashboard');
-      }),
       const Divider(height: 32),
       _buildDrawerItem(Icons.settings, 'Settings', () {
         if (isMobile) context.pop();
@@ -1591,11 +1688,7 @@ class PainterProfileWidget extends StatefulWidget {
   final String? registeredName;
   final String? emirates;
 
-  const PainterProfileWidget({
-    super.key,
-    this.registeredName,
-    this.emirates,
-  });
+  const PainterProfileWidget({super.key, this.registeredName, this.emirates});
 
   @override
   State<PainterProfileWidget> createState() => _PainterProfileWidgetState();
@@ -1614,36 +1707,51 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
 
   Future<void> _loadPainterDetails() async {
     setState(() => _isLoading = true);
-    
+
     try {
-      // Get current user's mobile number from AuthService or SharedPreferences
+      // Get current user's mobile number from SharedPreferences
       _currentMobile = await _getCurrentUserMobile();
-      
+
       if (_currentMobile != null) {
-        final response = await PainterService.getPainterDetails(_currentMobile!);
-        
+        // Use the new unified ProfileDetails API
+        final response = await ProfileDetailsService.getProfileByMobile(
+          _currentMobile!,
+        );
+
         if (response.success && response.data != null) {
           final newData = response.data!.toJson();
-          print('Painter data loaded: ${newData['firstName']} ${newData['lastName']}'); // Debug
+          print(
+            '✅ Profile data loaded: ${newData['firstName']} ${newData['lastName']}',
+          ); // Debug
           setState(() {
             _painterDetails = newData;
             _isLoading = false;
           });
         } else {
-          print('Failed to load painter data: ${response.message}'); // Debug
+          print('❌ Failed to load profile data: ${response.message}'); // Debug
           setState(() => _isLoading = false);
         }
       } else {
+        print('❌ No mobile number found in SharedPreferences');
         setState(() => _isLoading = false);
       }
     } catch (e) {
+      print('❌ Error loading profile: $e');
       setState(() => _isLoading = false);
     }
   }
 
   Future<String?> _getCurrentUserMobile() async {
-    // FOR TESTING: Return hardcoded mobile number
-    return '505555555';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Try multiple keys to find the mobile number
+      return prefs.getString('user_mobile') ??
+          prefs.getString('painter_mobile') ??
+          prefs.getString('contractor_mobile');
+    } catch (e) {
+      print('Error getting mobile number: $e');
+      return null;
+    }
   }
 
   @override
@@ -1656,13 +1764,16 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
     final firstName = _painterDetails?['firstName'] ?? '';
     final middleName = _painterDetails?['middleName'] ?? '';
     final lastName = _painterDetails?['lastName'] ?? '';
-    
-    final userName = [firstName, middleName, lastName]
-        .where((name) => name.isNotEmpty)
-        .join(' ')
-        .trim();
-    
-    final displayName = userName.isNotEmpty ? userName : (widget.registeredName ?? 'Guest User');
+
+    final userName = [
+      firstName,
+      middleName,
+      lastName,
+    ].where((name) => name.isNotEmpty).join(' ').trim();
+
+    final displayName = userName.isNotEmpty
+        ? userName
+        : (widget.registeredName ?? 'Guest User');
 
     return SingleChildScrollView(
       padding: EdgeInsets.all(16.w),
@@ -1672,56 +1783,99 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
           // Profile Header
           _buildProfileHeader(displayName),
           SizedBox(height: 24.h),
-          
+
           // Personal Details Section
-          _buildDetailsSection(
-            'Personal Details',
-            Icons.person_rounded,
-            [
-              _buildDetailItem('First Name', _painterDetails?['firstName'] ?? 'N/A'),
-              _buildDetailItem('Middle Name', _painterDetails?['middleName'] ?? 'N/A'),
-              _buildDetailItem('Last Name', _painterDetails?['lastName'] ?? 'N/A'),
-              _buildDetailItem('Mobile Number', _painterDetails?['mobileNumber'] ?? 'N/A'),
-              _buildDetailItem('Address', _painterDetails?['address'] ?? 'N/A'),
-              _buildDetailItem('Emirates', _painterDetails?['emirates'] ?? 'N/A'),
-            ],
-          ),
-          
+          _buildDetailsSection('Personal Details', Icons.person_rounded, [
+            _buildDetailItem(
+              'First Name',
+              _painterDetails?['firstName'] ?? 'N/A',
+            ),
+            _buildDetailItem(
+              'Middle Name',
+              _painterDetails?['middleName'] ?? 'N/A',
+            ),
+            _buildDetailItem(
+              'Last Name',
+              _painterDetails?['lastName'] ?? 'N/A',
+            ),
+            _buildDetailItem(
+              'Mobile Number',
+              _painterDetails?['mobileNumber'] ?? 'N/A',
+            ),
+            _buildDetailItem('Address', _painterDetails?['address'] ?? 'N/A'),
+            _buildDetailItem('Emirates', _painterDetails?['emirates'] ?? 'N/A'),
+          ]),
+
           SizedBox(height: 16.h),
-          
+
           // Emirates ID Details Section
           _buildDetailsSection(
             'Emirates ID Details',
             Icons.credit_card_rounded,
             [
-              _buildDetailItem('Emirates ID', _painterDetails?['emiratesIdNumber'] ?? 'N/A'),
-              _buildDetailItem('Name on ID', _painterDetails?['idName'] ?? 'N/A'),
-              _buildDetailItem('Date of Birth', _painterDetails?['dateOfBirth'] ?? 'N/A'),
-              _buildDetailItem('Nationality', _painterDetails?['nationality'] ?? 'N/A'),
-              _buildDetailItem('Company', _painterDetails?['companyDetails'] ?? 'N/A'),
-              _buildDetailItem('Issue Date', _painterDetails?['issueDate'] ?? 'N/A'),
-              _buildDetailItem('Expiry Date', _painterDetails?['expiryDate'] ?? 'N/A'),
-              _buildDetailItem('Occupation', _painterDetails?['occupation'] ?? 'N/A'),
+              _buildDetailItem(
+                'Emirates ID',
+                _painterDetails?['emiratesIdNumber'] ?? 'N/A',
+              ),
+              _buildDetailItem(
+                'Name on ID',
+                _painterDetails?['idName'] ?? 'N/A',
+              ),
+              _buildDetailItem(
+                'Date of Birth',
+                _painterDetails?['dateOfBirth'] ?? 'N/A',
+              ),
+              _buildDetailItem(
+                'Nationality',
+                _painterDetails?['nationality'] ?? 'N/A',
+              ),
+              _buildDetailItem(
+                'Company',
+                _painterDetails?['companyDetails'] ?? 'N/A',
+              ),
+              _buildDetailItem(
+                'Issue Date',
+                _painterDetails?['issueDate'] ?? 'N/A',
+              ),
+              _buildDetailItem(
+                'Expiry Date',
+                _painterDetails?['expiryDate'] ?? 'N/A',
+              ),
+              _buildDetailItem(
+                'Occupation',
+                _painterDetails?['occupation'] ?? 'N/A',
+              ),
             ],
           ),
-          
+
           SizedBox(height: 16.h),
-          
+
           // Bank Details Section
-          _buildDetailsSection(
-            'Bank Details',
-            Icons.account_balance_rounded,
-            [
-              _buildDetailItem('Account Holder', _painterDetails?['accountHolderName'] ?? 'N/A'),
-              _buildDetailItem('IBAN Number', _painterDetails?['ibanNumber'] ?? 'N/A'),
-              _buildDetailItem('Bank Name', _painterDetails?['bankName'] ?? 'N/A'),
-              _buildDetailItem('Branch Name', _painterDetails?['branchName'] ?? 'N/A'),
-              _buildDetailItem('Bank Address', _painterDetails?['bankAddress'] ?? 'N/A'),
-            ],
-          ),
-          
+          _buildDetailsSection('Bank Details', Icons.account_balance_rounded, [
+            _buildDetailItem(
+              'Account Holder',
+              _painterDetails?['accountHolderName'] ?? 'N/A',
+            ),
+            _buildDetailItem(
+              'IBAN Number',
+              _painterDetails?['ibanNumber'] ?? 'N/A',
+            ),
+            _buildDetailItem(
+              'Bank Name',
+              _painterDetails?['bankName'] ?? 'N/A',
+            ),
+            _buildDetailItem(
+              'Branch Name',
+              _painterDetails?['branchName'] ?? 'N/A',
+            ),
+            _buildDetailItem(
+              'Bank Address',
+              _painterDetails?['bankAddress'] ?? 'N/A',
+            ),
+          ]),
+
           SizedBox(height: 24.h),
-          
+
           // Refresh Button (for testing)
           SizedBox(
             width: double.infinity,
@@ -1741,9 +1895,9 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
               ),
             ),
           ),
-          
+
           SizedBox(height: 16.h),
-          
+
           // Update Button
           SizedBox(
             width: double.infinity,
@@ -1751,10 +1905,15 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
               onPressed: () async {
                 if (_currentMobile != null) {
                   // Navigate to update screen and wait for result
-                  final result = await context.push('/painter-update', extra: {'mobile': _currentMobile});
+                  final result = await context.push(
+                    '/painter-update',
+                    extra: {'mobile': _currentMobile},
+                  );
                   // Refresh profile data when returning from update screen
                   if (mounted && result == true) {
-                    print('Update successful, refreshing profile data...'); // Debug
+                    print(
+                      'Update successful, refreshing profile data...',
+                    ); // Debug
                     await _loadPainterDetails();
                   }
                 }
@@ -1771,9 +1930,9 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
               ),
             ),
           ),
-          
+
           SizedBox(height: 16.h),
-          
+
           // Logout Button
           SizedBox(
             width: double.infinity,
@@ -1818,7 +1977,11 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
                   ),
                   borderRadius: BorderRadius.circular(50.r),
                 ),
-                child: Icon(Icons.format_paint_rounded, color: Colors.white, size: 50.sp),
+                child: Icon(
+                  Icons.format_paint_rounded,
+                  color: Colors.white,
+                  size: 50.sp,
+                ),
               ),
               SizedBox(height: 16.h),
               Text(
@@ -1831,10 +1994,7 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
               ),
               Text(
                 'Painter',
-                style: TextStyle(
-                  fontSize: 14.sp,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 14.sp, color: Colors.grey[600]),
               ),
             ],
           ),
@@ -1843,7 +2003,11 @@ class _PainterProfileWidgetState extends State<PainterProfileWidget> {
     );
   }
 
-  Widget _buildDetailsSection(String title, IconData icon, List<Widget> children) {
+  Widget _buildDetailsSection(
+    String title,
+    IconData icon,
+    List<Widget> children,
+  ) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(16.w),

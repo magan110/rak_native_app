@@ -1,0 +1,37 @@
+{
+  "nodes": [
+    {"id": "registration_type_screen_registrationtypescreen", "label": "Registration Type Selection", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/registration_screens/registration_type_screen.dart"},
+    {"id": "contractor_registration_screen_contractorregistrationscreen", "label": "Contractor Registration", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/registration_screens/contractor_registration_screen.dart"},
+    {"id": "painter_registration_screen_painterregistrationscreen", "label": "Painter Registration", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/registration_screens/painter_registration_screen.dart"},
+    {"id": "success_screen_successscreen", "label": "Registration Success Screen", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/registration_screens/success_screen.dart"},
+    {"id": "user_list_screen_userlistscreen", "label": "Stakeholder List Screen", "file_type": "code", "source_file": "lib/features/user_management/user_list_screen.dart"},
+    {"id": "user_edit_screen_usereditscreen", "label": "Stakeholder Edit Screen", "file_type": "code", "source_file": "lib/features/user_management/user_edit_screen.dart"},
+    {"id": "user_list_service_userlistservice", "label": "User Management Service", "file_type": "code", "source_file": "lib/features/user_management/user_list_service.dart"},
+    {"id": "trade_partner_home_screen_tradepartnerhomescreen", "label": "Trade Partner Dashboard", "file_type": "code", "source_file": "lib/features/trade_partner_journey/presentation/screens/trade_partner_home_screen.dart"},
+    {"id": "aging_stock_screen_agingstockscreen", "label": "Aging Stock Monitor", "file_type": "code", "source_file": "lib/features/stock_visibility/presentation/screens/aging_stock_screen.dart"},
+    {"id": "stock_entry_screen_stockentryscreen", "label": "Stock Entry Screen", "file_type": "code", "source_file": "lib/features/stock_visibility/presentation/screens/stock_entry_screen.dart"},
+    {"id": "ledger_screen_ledgerscreen", "label": "Financial Ledger Screen", "file_type": "code", "source_file": "lib/features/trade_partner_journey/presentation/screens/ledger_screen.dart"},
+    {"id": "schemes_screen_schemesscreen", "label": "Trade Schemes Screen", "file_type": "code", "source_file": "lib/features/trade_partner_journey/presentation/screens/schemes_screen.dart"}
+  ],
+  "edges": [
+    {"source": "registration_type_screen_registrationtypescreen", "target": "contractor_registration_screen_contractorregistrationscreen", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/screens/presentation/pages/registration_screens/registration_type_screen.dart"},
+    {"source": "user_list_screen_userlistscreen", "target": "user_edit_screen_usereditscreen", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/user_management/user_list_screen.dart"},
+    {"source": "user_edit_screen_usereditscreen", "target": "user_list_service_userlistservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/user_management/user_edit_screen.dart"},
+    {"source": "user_list_service_userlistservice", "target": "ssl_http_client_sslhttpclient", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/user_management/user_list_service.dart"},
+    {"source": "stock_entry_screen_stockentryscreen", "target": "stock_service_stockservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/stock_visibility/presentation/screens/stock_entry_screen.dart"},
+    {"source": "aging_stock_screen_agingstockscreen", "target": "stock_service_stockservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/stock_visibility/presentation/screens/aging_stock_screen.dart"}
+  ],
+  "hyperedges": [
+    {
+      "id": "trade_partner_features",
+      "label": "Trade Partner Journey Features",
+      "nodes": ["ledger_screen_ledgerscreen", "schemes_screen_schemesscreen", "trade_partner_home_screen_tradepartnerhomescreen"],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "lib/features/trade_partner_journey"
+    }
+  ],
+  "input_tokens": 22000,
+  "output_tokens": 3000
+}

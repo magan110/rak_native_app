@@ -12,10 +12,10 @@ class App extends StatelessWidget {
       title: 'RAK App',
       debugShowCheckedModeBanner: false,
 
-      // Theme
+      // Theme - Force light mode
       theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
+      darkTheme: AppTheme.lightTheme, // Use light theme for dark mode too
+      themeMode: ThemeMode.light, // Force light mode
 
       // Routing with go_router
       routerConfig: AppRouter.router,

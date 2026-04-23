@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../core/services/auth_service.dart';
+import '../../core/network/ssl_http_client.dart';
 
 // ============= MODELS =============
 
@@ -36,14 +38,7 @@ class ApprovalItem {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'type': type,
-      'date': date,
-      'status': status,
-      'avatar': avatar,
-    };
+    return {'id': id, 'name': name, 'type': type, 'date': date, 'status': status, 'avatar': avatar};
   }
 }
 
@@ -65,9 +60,7 @@ class ApprovalStats {
       totalPending: json['totalPending'] ?? 0,
       contractors: json['contractors'] ?? 0,
       painters: json['painters'] ?? 0,
-      timestamp: json['timestamp'] != null
-          ? DateTime.parse(json['timestamp'])
-          : DateTime.now(),
+      timestamp: json['timestamp'] != null ? DateTime.parse(json['timestamp']) : DateTime.now(),
     );
   }
 
@@ -102,11 +95,7 @@ class ApprovalResponse {
       page: json['page'] ?? 1,
       pageSize: json['pageSize'] ?? 20,
       total: json['total'] ?? 0,
-      items:
-          (json['items'] as List<dynamic>?)
-              ?.map((item) => ApprovalItem.fromJson(item))
-              .toList() ??
-          [],
+      items: (json['items'] as List<dynamic>?)?.map((item) => ApprovalItem.fromJson(item)).toList() ?? [],
     );
   }
 
@@ -123,23 +112,23 @@ class ApprovalResponse {
 
 class ApprovalActionRequest {
   final String inflCode;
-  final String? actorId;
+  final String? loginId;
 
-  ApprovalActionRequest({required this.inflCode, this.actorId});
+  ApprovalActionRequest({required this.inflCode, this.loginId});
 
   Map<String, dynamic> toJson() {
-    return {'inflCode': inflCode, 'actorId': actorId};
+    return {'inflCode': inflCode, 'loginId': loginId};
   }
 }
 
 class RejectionActionRequest extends ApprovalActionRequest {
   final String? reason;
 
-  RejectionActionRequest({required super.inflCode, super.actorId, this.reason});
+  RejectionActionRequest({required super.inflCode, super.loginId, this.reason});
 
   @override
   Map<String, dynamic> toJson() {
-    return {'inflCode': inflCode, 'actorId': actorId, 'reason': reason};
+    return {'inflCode': inflCode, 'loginId': loginId, 'reason': reason};
   }
 }
 
@@ -148,11 +137,7 @@ class ApprovalActionResponse {
   final String message;
   final String? influencerCode;
 
-  ApprovalActionResponse({
-    required this.success,
-    required this.message,
-    this.influencerCode,
-  });
+  ApprovalActionResponse({required this.success, required this.message, this.influencerCode});
 
   factory ApprovalActionResponse.fromJson(Map<String, dynamic> json) {
     return ApprovalActionResponse(
@@ -163,11 +148,7 @@ class ApprovalActionResponse {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'success': success,
-      'message': message,
-      'influencerCode': influencerCode,
-    };
+    return {'success': success, 'message': message, 'influencerCode': influencerCode};
   }
 }
 
@@ -267,6 +248,13 @@ class RegistrationDetails {
 
 class ApprovalService {
   static const String baseUrl = 'https://qa.birlawhite.com:55232';
+  static http.Client? _httpClient;
+
+  /// Get SSL-enabled HTTP client
+  static Future<http.Client> _getClient() async {
+    _httpClient ??= await SslHttpClient.getClient();
+    return _httpClient!;
+  }
 
   Future<ApprovalResponse> getPendingApprovals({
     String? search,
@@ -276,10 +264,7 @@ class ApprovalService {
     String? sort,
   }) async {
     try {
-      final queryParams = <String, String>{
-        'page': page.toString(),
-        'pageSize': pageSize.toString(),
-      };
+      final queryParams = <String, String>{'page': page.toString(), 'pageSize': pageSize.toString()};
 
       if (search != null && search.isNotEmpty) {
         queryParams['search'] = search;
@@ -291,27 +276,18 @@ class ApprovalService {
         queryParams['sort'] = sort;
       }
 
-      final uri = Uri.parse(
-        '$baseUrl/api/Approval/pending',
-      ).replace(queryParameters: queryParams);
+      final uri = Uri.parse('$baseUrl/api/Approval/pending').replace(queryParameters: queryParams);
 
-      final response = await http
-          .get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          )
+      final client = await _getClient();
+      final response = await client
+          .get(uri, headers: {'Content-Type': 'application/json', 'Accept': 'application/json'})
           .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return ApprovalResponse.fromJson(data);
       } else {
-        throw Exception(
-          'Failed to load pending approvals: ${response.statusCode}',
-        );
+        throw Exception('Failed to load pending approvals: ${response.statusCode}');
       }
     } catch (e) {
       throw Exception('Error fetching pending approvals: $e');
@@ -322,48 +298,33 @@ class ApprovalService {
     try {
       final uri = Uri.parse('$baseUrl/api/Approval/stats');
 
-      final response = await http
-          .get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          )
+      final client = await _getClient();
+      final response = await client
+          .get(uri, headers: {'Content-Type': 'application/json', 'Accept': 'application/json'})
           .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return ApprovalStats.fromJson(data);
       } else {
-        throw Exception(
-          'Failed to load approval stats: ${response.statusCode}',
-        );
+        throw Exception('Failed to load approval stats: ${response.statusCode}');
       }
     } catch (e) {
       throw Exception('Error fetching approval stats: $e');
     }
   }
 
-  Future<ApprovalActionResponse> approveItem(
-    String inflCode, {
-    String? actorId,
-  }) async {
+  Future<ApprovalActionResponse> approveItem(String inflCode, {String? loginId}) async {
     try {
-      final request = ApprovalActionRequest(
-        inflCode: inflCode,
-        actorId: actorId,
-      );
+      final request = ApprovalActionRequest(inflCode: inflCode, loginId: loginId);
 
       final uri = Uri.parse('$baseUrl/api/Approval/approve');
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(
             uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
+            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
             body: json.encode(request.toJson()),
           )
           .timeout(const Duration(seconds: 30));
@@ -379,27 +340,17 @@ class ApprovalService {
     }
   }
 
-  Future<ApprovalActionResponse> rejectItem(
-    String inflCode, {
-    String? reason,
-    String? actorId,
-  }) async {
+  Future<ApprovalActionResponse> rejectItem(String inflCode, {String? reason, String? loginId}) async {
     try {
-      final request = RejectionActionRequest(
-        inflCode: inflCode,
-        reason: reason,
-        actorId: actorId,
-      );
+      final request = RejectionActionRequest(inflCode: inflCode, reason: reason, loginId: loginId);
 
       final uri = Uri.parse('$baseUrl/api/Approval/reject');
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(
             uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
+            headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
             body: json.encode(request.toJson()),
           )
           .timeout(const Duration(seconds: 30));
@@ -421,14 +372,9 @@ class ApprovalService {
       print('DEBUG API: Looking up inflCode for identifier: $identifier');
       print('DEBUG API: Lookup URL: $uri');
 
-      final response = await http
-          .get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          )
+      final client = await _getClient();
+      final response = await client
+          .get(uri, headers: {'Content-Type': 'application/json', 'Accept': 'application/json'})
           .timeout(const Duration(seconds: 30));
 
       print('DEBUG API: Lookup response status: ${response.statusCode}');
@@ -442,9 +388,7 @@ class ApprovalService {
       } else if (response.statusCode == 404) {
         throw Exception('Person not found for identifier: $identifier');
       } else {
-        throw Exception(
-          'Failed to lookup inflCode: ${response.statusCode} - ${response.body}',
-        );
+        throw Exception('Failed to lookup inflCode: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('DEBUG API: Lookup exception: $e');
@@ -457,14 +401,9 @@ class ApprovalService {
       final uri = Uri.parse('$baseUrl/api/Approval/details/$inflCode');
       print('DEBUG API: Requesting URL: $uri');
 
-      final response = await http
-          .get(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          )
+      final client = await _getClient();
+      final response = await client
+          .get(uri, headers: {'Content-Type': 'application/json', 'Accept': 'application/json'})
           .timeout(const Duration(seconds: 30));
 
       print('DEBUG API: Response status: ${response.statusCode}');
@@ -475,13 +414,9 @@ class ApprovalService {
         print('DEBUG API: Parsed data: $data');
         return RegistrationDetails.fromJson(data);
       } else if (response.statusCode == 404) {
-        throw Exception(
-          'Registration details not found for inflCode: $inflCode',
-        );
+        throw Exception('Registration details not found for inflCode: $inflCode');
       } else {
-        throw Exception(
-          'Failed to load registration details: ${response.statusCode} - ${response.body}',
-        );
+        throw Exception('Failed to load registration details: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('DEBUG API: Exception occurred: $e');
@@ -489,9 +424,7 @@ class ApprovalService {
     }
   }
 
-  Future<RegistrationDetails> getRegistrationDetailsByIdentifier(
-    String identifier,
-  ) async {
+  Future<RegistrationDetails> getRegistrationDetailsByIdentifier(String identifier) async {
     try {
       print('DEBUG: Getting details for identifier: $identifier');
 
@@ -530,7 +463,8 @@ class ModernDropdown extends StatelessWidget {
     return DropdownButtonFormField<String>(
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, size: 20.sp),
+        labelStyle: TextStyle(fontSize: 14.sp, color: Colors.grey.shade600),
+        prefixIcon: Icon(icon, size: 20.sp, color: const Color(0xFF1E3A8A)),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12.r),
           borderSide: BorderSide(color: Colors.grey.shade300),
@@ -544,15 +478,19 @@ class ModernDropdown extends StatelessWidget {
           borderSide: BorderSide(color: const Color(0xFF1E3A8A), width: 2.w),
         ),
         filled: true,
-        fillColor: const Color(0xFFF8FAFC),
+        fillColor: Colors.white,
         contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
       ),
-      style: TextStyle(fontSize: 14.sp),
+      dropdownColor: Colors.white,
+      style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w500),
       value: value,
       items: items.map((String item) {
         return DropdownMenuItem<String>(
           value: item,
-          child: Text(item, style: TextStyle(fontSize: 14.sp)),
+          child: Text(
+            item,
+            style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w500),
+          ),
         );
       }).toList(),
       onChanged: onChanged,
@@ -564,14 +502,11 @@ class ApprovalDashboardScreen extends StatefulWidget {
   const ApprovalDashboardScreen({super.key});
 
   @override
-  State<ApprovalDashboardScreen> createState() =>
-      _ApprovalDashboardScreenState();
+  State<ApprovalDashboardScreen> createState() => _ApprovalDashboardScreenState();
 }
 
-class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
-    with TickerProviderStateMixin {
+class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen> with TickerProviderStateMixin {
   final ApprovalService _approvalService = ApprovalService();
-  List<ApprovalItem> _pendingRegistrations = [];
   ApprovalStats? _stats;
 
   late AnimationController _mainController;
@@ -587,34 +522,26 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
   bool _isLoading = false;
   String? _errorMessage;
   int _currentPage = 1;
-  final int _pageSize = 20;
-  bool _hasMore = true;
+  final int _pageSize = 1000; // Increased to show all users
 
   @override
   void initState() {
     super.initState();
     _loadData();
-    _mainController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-    _fabController = AnimationController(
-      duration: const Duration(milliseconds: 400),
-      vsync: this,
-    );
+    _mainController = AnimationController(duration: const Duration(milliseconds: 1000), vsync: this);
+    _fabController = AnimationController(duration: const Duration(milliseconds: 400), vsync: this);
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _mainController,
         curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
       ),
     );
-    _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _mainController,
-            curve: const Interval(0.2, 0.7, curve: Curves.easeOutCubic),
-          ),
-        );
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+      CurvedAnimation(
+        parent: _mainController,
+        curve: const Interval(0.2, 0.7, curve: Curves.easeOutCubic),
+      ),
+    );
     _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
       CurvedAnimation(
         parent: _mainController,
@@ -623,14 +550,8 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
     );
     // Initialize card animations
     for (int i = 0; i < 3; i++) {
-      final controller = AnimationController(
-        duration: const Duration(milliseconds: 400),
-        vsync: this,
-      );
-      final animation = CurvedAnimation(
-        parent: controller,
-        curve: Curves.easeOutCubic,
-      );
+      final controller = AnimationController(duration: const Duration(milliseconds: 400), vsync: this);
+      final animation = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
       _cardControllers.add(controller);
       _cardAnimations.add(animation);
       // Stagger the card animations
@@ -662,9 +583,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
       final response = results[1] as ApprovalResponse;
 
       setState(() {
-        _pendingRegistrations = response.items;
         _filteredRegistrations = response.items;
-        _hasMore = response.items.length == _pageSize;
         _isLoading = false;
       });
     } catch (e) {
@@ -680,41 +599,63 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
     await _loadData();
   }
 
-  Future<void> _approveItem(ApprovalItem item) async {
+  /// Handle approve action with current user's loginId
+  Future<void> handleApprove(String inflCode) async {
+    // Get current logged-in user's ID
+    final currentUser = AuthManager.currentUser;
+    final loginId = currentUser?.userID ?? currentUser?.emplName ?? 'SYSTEM';
+
     try {
-      // Get the inflCode for this item
-      final inflCode = await _approvalService.lookupInflCode(item.id);
+      final response = await _approvalService.approveItem(inflCode, loginId: loginId);
 
-      // Approve the item
-      await _approvalService.approveItem(inflCode);
-
-      _refreshData();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${item.name} approved successfully')),
-      );
+      if (mounted) {
+        if (response.success) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(response.message), backgroundColor: Colors.green));
+          _refreshData();
+        } else {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(response.message), backgroundColor: Colors.red));
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to approve: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
+      }
     }
   }
 
-  Future<void> _rejectItem(ApprovalItem item, String reason) async {
+  /// Handle reject action with current user's loginId
+  Future<void> handleReject(String inflCode, String reason) async {
+    // Get current logged-in user's ID
+    final currentUser = AuthManager.currentUser;
+    final loginId = currentUser?.userID ?? currentUser?.emplName ?? 'SYSTEM';
+
     try {
-      // Get the inflCode for this item
-      final inflCode = await _approvalService.lookupInflCode(item.id);
+      final response = await _approvalService.rejectItem(inflCode, reason: reason, loginId: loginId);
 
-      // Reject the item with reason
-      await _approvalService.rejectItem(inflCode, reason: reason);
-
-      _refreshData();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${item.name} rejected successfully')),
-      );
+      if (mounted) {
+        if (response.success) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(response.message), backgroundColor: Colors.green));
+          _refreshData();
+        } else {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(response.message), backgroundColor: Colors.red));
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to reject: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -759,9 +700,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isMobile = constraints.maxWidth < 600;
-                  final isTablet =
-                      constraints.maxWidth >= 600 &&
-                      constraints.maxWidth < 1200;
+                  final isTablet = constraints.maxWidth >= 600 && constraints.maxWidth < 1200;
                   final isDesktop = constraints.maxWidth >= 1200;
 
                   return SingleChildScrollView(
@@ -817,11 +756,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
       ),
       title: Text(
         'Approval Dashboard',
-        style: TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: 20.sp,
-          color: const Color(0xFF1E3A8A),
-        ),
+        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 20.sp, color: const Color(0xFF1E3A8A)),
       ),
     );
   }
@@ -837,24 +772,14 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16.r),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.blue.withOpacity(0.15),
-            blurRadius: 20.r,
-            offset: Offset(0, 8.h),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.15), blurRadius: 20.r, offset: Offset(0, 8.h))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Approval Dashboard',
-            style: TextStyle(
-              fontSize: 32.sp,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
+            style: TextStyle(fontSize: 32.sp, fontWeight: FontWeight.bold, color: Colors.white),
           ),
           SizedBox(height: 12.h),
           Text(
@@ -946,9 +871,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
         children: List.generate(stats.length, (index) {
           return Expanded(
             child: Padding(
-              padding: EdgeInsets.only(
-                right: index < stats.length - 1 ? 16.w : 0,
-              ),
+              padding: EdgeInsets.only(right: index < stats.length - 1 ? 16.w : 0),
               child: _buildStatCard(
                 stats[index]['title'] as String,
                 stats[index]['value'] as String,
@@ -981,13 +904,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16.r),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 16.r,
-              offset: Offset(0, 4.h),
-            ),
-          ],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 16.r, offset: Offset(0, 4.h))],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -998,27 +915,20 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
                 Container(
                   width: 48.w,
                   height: 48.h,
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
+                  decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
                   child: Icon(icon, color: color, size: 24.sp),
                 ),
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                   decoration: BoxDecoration(
-                    color: isPositive
-                        ? Colors.green.withOpacity(0.1)
-                        : Colors.red.withOpacity(0.1),
+                    color: isPositive ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(12.r),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        isPositive
-                            ? Icons.trending_up_rounded
-                            : Icons.trending_down_rounded,
+                        isPositive ? Icons.trending_up_rounded : Icons.trending_down_rounded,
                         color: isPositive ? Colors.green : Colors.red,
                         size: 14.sp,
                       ),
@@ -1044,11 +954,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
             SizedBox(height: 8.h),
             Text(
               value,
-              style: TextStyle(
-                fontSize: 28.sp,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+              style: TextStyle(fontSize: 28.sp, fontWeight: FontWeight.bold, color: color),
             ),
           ],
         ),
@@ -1066,11 +972,11 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
             children: [
               TextField(
                 controller: _searchController,
-                style: TextStyle(fontSize: 14.sp),
+                style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w500),
                 decoration: InputDecoration(
                   labelText: 'Search registrations',
-                  labelStyle: TextStyle(fontSize: 14.sp),
-                  prefixIcon: Icon(Icons.search_rounded, size: 20.sp),
+                  labelStyle: TextStyle(fontSize: 14.sp, color: Colors.grey.shade600),
+                  prefixIcon: Icon(Icons.search_rounded, size: 20.sp, color: const Color(0xFF1E3A8A)),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12.r),
                     borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1081,17 +987,11 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12.r),
-                    borderSide: BorderSide(
-                      color: const Color(0xFF1E3A8A),
-                      width: 2.w,
-                    ),
+                    borderSide: BorderSide(color: const Color(0xFF1E3A8A), width: 2.w),
                   ),
                   filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: EdgeInsets.symmetric(
-                    horizontal: 16.w,
-                    vertical: 16.h,
-                  ),
+                  fillColor: Colors.white,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
                 ),
                 onChanged: _filterRegistrations,
               ),
@@ -1099,12 +999,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
               ModernDropdown(
                 label: 'Filter by type',
                 icon: Icons.filter_list,
-                items: [
-                  'All',
-                  'Maintenance Contractor',
-                  'Petty contractors',
-                  'Painter',
-                ],
+                items: ['All', 'Maintenance Contractor', 'Petty contractors', 'Painter'],
                 value: _selectedFilter,
                 onChanged: (value) {
                   setState(() {
@@ -1122,11 +1017,11 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
                 flex: 3,
                 child: TextField(
                   controller: _searchController,
-                  style: TextStyle(fontSize: 14.sp),
+                  style: TextStyle(fontSize: 14.sp, color: Colors.black87, fontWeight: FontWeight.w500),
                   decoration: InputDecoration(
                     labelText: 'Search registrations',
-                    labelStyle: TextStyle(fontSize: 14.sp),
-                    prefixIcon: Icon(Icons.search_rounded, size: 20.sp),
+                    labelStyle: TextStyle(fontSize: 14.sp, color: Colors.grey.shade600),
+                    prefixIcon: Icon(Icons.search_rounded, size: 20.sp, color: const Color(0xFF1E3A8A)),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12.r),
                       borderSide: BorderSide(color: Colors.grey.shade300),
@@ -1137,17 +1032,11 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12.r),
-                      borderSide: BorderSide(
-                        color: const Color(0xFF1E3A8A),
-                        width: 2.w,
-                      ),
+                      borderSide: BorderSide(color: const Color(0xFF1E3A8A), width: 2.w),
                     ),
                     filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: 16.w,
-                      vertical: 16.h,
-                    ),
+                    fillColor: Colors.white,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
                   ),
                   onChanged: _filterRegistrations,
                 ),
@@ -1158,12 +1047,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
                 child: ModernDropdown(
                   label: 'Filter by type',
                   icon: Icons.filter_list,
-                  items: [
-                    'All',
-                    'Maintenance Contractor',
-                    'Petty contractors',
-                    'Painter',
-                  ],
+                  items: ['All', 'Maintenance Contractor', 'Petty contractors', 'Painter'],
                   value: _selectedFilter,
                   onChanged: (value) {
                     setState(() {
@@ -1189,28 +1073,31 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
           children: [
             Expanded(
               child: Text(
-                'Registrations awaiting approval',
-                style: TextStyle(fontSize: 16.sp, color: Colors.grey),
+                'All registrations awaiting approval',
+                style: TextStyle(fontSize: 14.sp, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
               ),
             ),
-            Flexible(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '${_filteredRegistrations.length} items',
-                    style: TextStyle(
-                      fontSize: 16.sp,
-                      color: Colors.grey.shade600,
-                    ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 6.h),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E3A8A).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20.r),
                   ),
-                  SizedBox(width: 8.w),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    onPressed: _isLoading ? null : _refreshData,
+                  child: Text(
+                    '${_filteredRegistrations.length} Total',
+                    style: TextStyle(fontSize: 13.sp, color: const Color(0xFF1E3A8A), fontWeight: FontWeight.bold),
                   ),
-                ],
-              ),
+                ),
+                SizedBox(width: 8.w),
+                IconButton(
+                  icon: Icon(Icons.refresh_rounded, size: 20.sp),
+                  onPressed: _isLoading ? null : _refreshData,
+                  tooltip: 'Refresh',
+                ),
+              ],
             ),
           ],
         ),
@@ -1219,247 +1106,310 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
           Center(
             child: Padding(
               padding: EdgeInsets.all(32.0.r),
-              child: const CircularProgressIndicator(),
+              child: Column(
+                children: [
+                  const CircularProgressIndicator(),
+                  SizedBox(height: 16.h),
+                  Text(
+                    'Loading all registrations...',
+                    style: TextStyle(fontSize: 14.sp, color: Colors.grey.shade600),
+                  ),
+                ],
+              ),
             ),
           )
         else if (_errorMessage != null)
           Container(
-            height: 200,
+            padding: EdgeInsets.all(24.r),
             decoration: BoxDecoration(
               color: const Color(0xFFFEF2F2),
               borderRadius: BorderRadius.circular(12.r),
               border: Border.all(color: Colors.red.shade200),
             ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64.sp,
-                    color: Colors.red.shade400,
-                  ),
-                  SizedBox(height: 16.h),
-                  Text(
-                    'Error loading data',
-                    style: TextStyle(
-                      color: Colors.red.shade700,
-                      fontSize: 16.sp,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 8.h),
-                  Text(
-                    _errorMessage!,
-                    style: TextStyle(
-                      color: Colors.red.shade600,
-                      fontSize: 14.sp,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 16.h),
-                  ElevatedButton(
-                    onPressed: _refreshData,
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
+            child: Column(
+              children: [
+                Icon(Icons.error_outline_rounded, size: 48.sp, color: Colors.red.shade400),
+                SizedBox(height: 16.h),
+                Text(
+                  'Error loading data',
+                  style: TextStyle(color: Colors.red.shade700, fontSize: 16.sp, fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 8.h),
+                Text(
+                  _errorMessage!,
+                  style: TextStyle(color: Colors.red.shade600, fontSize: 13.sp),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 16.h),
+                ElevatedButton.icon(
+                  onPressed: _refreshData,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                ),
+              ],
             ),
           )
         else if (_filteredRegistrations.isEmpty)
           Container(
-            height: 200,
+            padding: EdgeInsets.all(32.r),
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(12.r),
               border: Border.all(color: Colors.grey.shade200),
             ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.search_off_rounded,
-                    size: 64.sp,
-                    color: Colors.grey,
-                  ),
-                  SizedBox(height: 16.h),
-                  Text(
-                    'No registrations found',
-                    style: TextStyle(color: Colors.grey, fontSize: 16.sp),
-                  ),
-                ],
-              ),
+            child: Column(
+              children: [
+                Icon(Icons.search_off_rounded, size: 48.sp, color: Colors.grey.shade400),
+                SizedBox(height: 16.h),
+                Text(
+                  'No registrations found',
+                  style: TextStyle(color: Colors.grey.shade700, fontSize: 16.sp, fontWeight: FontWeight.w500),
+                ),
+                SizedBox(height: 8.h),
+                Text(
+                  'Try adjusting your search or filter',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13.sp),
+                ),
+              ],
             ),
           )
         else
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _filteredRegistrations.length,
-            separatorBuilder: (context, index) => const Divider(),
-            itemBuilder: (context, index) {
-              final registration = _filteredRegistrations[index];
-              return _buildRegistrationTile(registration);
-            },
+          Column(
+            children: [
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+                decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8.r)),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 16.sp, color: Colors.blue.shade700),
+                    SizedBox(width: 8.w),
+                    Expanded(
+                      child: Text(
+                        'Showing all ${_filteredRegistrations.length} pending registrations',
+                        style: TextStyle(fontSize: 12.sp, color: Colors.blue.shade700),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: 12.h),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _filteredRegistrations.length,
+                itemBuilder: (context, index) {
+                  final registration = _filteredRegistrations[index];
+                  return _buildRegistrationTile(registration);
+                },
+              ),
+            ],
           ),
       ],
     );
   }
 
   Widget _buildRegistrationTile(ApprovalItem registration) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        backgroundColor: const Color(0xFF1E3A8A).withOpacity(0.1),
-        child: Text(
-          registration.avatar,
-          style: TextStyle(
-            color: const Color(0xFF1E3A8A),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+    return Card(
+      margin: EdgeInsets.only(bottom: 16.h),
+      elevation: 3,
+      color: Colors.white,
+      shadowColor: const Color(0xFF1E3A8A).withOpacity(0.15),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16.r),
+        side: BorderSide(color: const Color(0xFF1E3A8A), width: 2.5),
       ),
-      title: Text(
-        registration.name,
-        style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w500),
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        '${registration.type} • ${registration.date}',
-        style: TextStyle(fontSize: 14.sp, color: Colors.grey.shade600),
-        overflow: TextOverflow.ellipsis,
-      ),
-      trailing: SizedBox(
-        width: 120.w, // Fixed width to prevent overflow
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 2.h),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8.r),
-                ),
-                child: Text(
-                  registration.status,
-                  style: TextStyle(
-                    color: Colors.orange,
-                    fontSize: 10.sp,
-                    fontWeight: FontWeight.bold,
+      child: InkWell(
+        onTap: () async {
+          final result = await context.push('/registration-details/${registration.id}');
+          if (result == true) {
+            _refreshData();
+          }
+        },
+        borderRadius: BorderRadius.circular(16.r),
+        child: Padding(
+          padding: EdgeInsets.all(16.r),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header Row
+              Row(
+                children: [
+                  // Name and Type
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          registration.name,
+                          style: TextStyle(
+                            fontSize: 16.sp,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFF1F2937),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 6.h),
+                        Row(
+                          children: [
+                            Icon(
+                              registration.type.contains('Contractor')
+                                  ? Icons.business_rounded
+                                  : Icons.format_paint_rounded,
+                              size: 14.sp,
+                              color: const Color(0xFF1E3A8A),
+                            ),
+                            SizedBox(width: 6.w),
+                            Expanded(
+                              child: Text(
+                                registration.type,
+                                style: TextStyle(
+                                  fontSize: 13.sp,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                ],
               ),
-            ),
-            SizedBox(width: 4.w),
-            PopupMenuButton<String>(
-              icon: Icon(Icons.more_vert, color: Colors.grey.shade400),
-              onSelected: (value) async {
-                if (value == 'approve') {
-                  await _approveItem(registration);
-                } else if (value == 'reject') {
-                  _showRejectDialog(registration);
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'approve',
+              SizedBox(height: 16.h),
+              // Divider
+              Divider(height: 1, color: Colors.grey.shade200),
+              SizedBox(height: 12.h),
+              // Details Row
+              Row(
+                children: [
+                  // Date
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(8.r),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(8.r),
+                          ),
+                          child: Icon(Icons.calendar_today_rounded, size: 16.sp, color: Colors.blue.shade700),
+                        ),
+                        SizedBox(width: 8.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Submitted',
+                                style: TextStyle(
+                                  fontSize: 10.sp,
+                                  color: Colors.grey.shade500,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 2.h),
+                              Text(
+                                registration.date,
+                                style: TextStyle(
+                                  fontSize: 12.sp,
+                                  color: Colors.grey.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: 12.w),
+                  // ID
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(8.r),
+                          decoration: BoxDecoration(
+                            color: Colors.purple.shade50,
+                            borderRadius: BorderRadius.circular(8.r),
+                          ),
+                          child: Icon(Icons.badge_rounded, size: 16.sp, color: Colors.purple.shade700),
+                        ),
+                        SizedBox(width: 8.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ID',
+                                style: TextStyle(
+                                  fontSize: 10.sp,
+                                  color: Colors.grey.shade500,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 2.h),
+                              Text(
+                                registration.id,
+                                style: TextStyle(
+                                  fontSize: 12.sp,
+                                  color: Colors.grey.shade800,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 12.h),
+              // Status Badge
+              Center(
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 10.h),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(24.r),
+                    border: Border.all(color: Colors.orange.shade300, width: 2),
+                  ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.check, color: Colors.green),
+                      Icon(Icons.hourglass_empty_rounded, size: 16.sp, color: Colors.orange.shade800),
                       SizedBox(width: 8.w),
-                      const Text('Approve'),
+                      Text(
+                        registration.status,
+                        style: TextStyle(color: Colors.orange.shade800, fontSize: 13.sp, fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'reject',
-                  child: Row(
-                    children: [
-                      const Icon(Icons.close, color: Colors.red),
-                      SizedBox(width: 8.w),
-                      const Text('Reject'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      onTap: () async {
-        // Navigate to details screen using GoRouter
-        final result = await context.push('/registration-details/${registration.id}');
-        // If result is true, it means an approval/rejection occurred, so refresh
-        if (result == true) {
-          _refreshData();
-        }
-      },
-    );
-  }
-
-  void _showRejectDialog(ApprovalItem item) {
-    final reasonController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Reject ${item.name}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Please provide a reason for rejection:'),
-            SizedBox(height: 16.h),
-            TextField(
-              controller: reasonController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'Enter rejection reason...',
-                border: OutlineInputBorder(),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _rejectItem(item, reasonController.text);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Reject'),
-          ),
-        ],
       ),
     );
   }
 
-  Widget _buildModernSection({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
-  }) {
+  Widget _buildModernSection({required String title, required IconData icon, required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16.r),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 16.r,
-            offset: Offset(0, 4.h),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 16.r, offset: Offset(0, 4.h))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1476,25 +1426,14 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
                 Container(
                   width: 48.w,
                   height: 48.h,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E3A8A).withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    icon,
-                    color: const Color(0xFF1E3A8A),
-                    size: 24.sp,
-                  ),
+                  decoration: BoxDecoration(color: const Color(0xFF1E3A8A).withOpacity(0.1), shape: BoxShape.circle),
+                  child: Icon(icon, color: const Color(0xFF1E3A8A), size: 24.sp),
                 ),
                 SizedBox(width: 16.w),
                 Expanded(
                   child: Text(
                     title,
-                    style: TextStyle(
-                      fontSize: 20.sp,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF1F2937),
-                    ),
+                    style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold, color: const Color(0xFF1F2937)),
                   ),
                 ),
               ],
@@ -1503,10 +1442,7 @@ class _ApprovalDashboardScreenState extends State<ApprovalDashboardScreen>
           // Section Content
           Padding(
             padding: EdgeInsets.all(24.r),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: children,
-            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
           ),
         ],
       ),

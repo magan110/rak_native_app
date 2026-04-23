@@ -1,3 +1,5 @@
+import '../config/api_config.dart';
+
 class AppConstants {
   // App Information
   static const String appName = 'RAK Business Management';
@@ -9,10 +11,9 @@ class AppConstants {
   static const String companyShortName = 'RAKWCCM';
   static const String companyWebsite = 'https://rakwhitecement.ae/';
 
-  // API Configuration
-  static const String baseUrl =
-      'https://qa.birlawhite.com:55232'; // Replace with actual API
-  static const Duration apiTimeout = Duration(seconds: 30);
+  // API Configuration — delegates to ApiConfig (single source of truth)
+  static String get baseUrl => ApiConfig.baseUrl;
+  static Duration get apiTimeout => ApiConfig.defaultTimeout;
 
   // Storage Keys
   static const String userTokenKey = 'user_token';

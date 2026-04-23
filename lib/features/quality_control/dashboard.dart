@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../core/network/ssl_http_client.dart';
 
 // ============= MODELS =============
 
@@ -140,6 +141,13 @@ class DashboardApi {
     'Accept': 'application/json',
     'Content-Type': 'application/json',
   };
+  static http.Client? _httpClient;
+
+  /// Get SSL-enabled HTTP client
+  static Future<http.Client> _getClient() async {
+    _httpClient ??= await SslHttpClient.getClient();
+    return _httpClient!;
+  }
 
   static Uri _buildUri(String subPath, [Map<String, String>? query]) {
     return Uri(
@@ -183,7 +191,8 @@ class DashboardApi {
 
     final uri = _buildUri('stats', params);
 
-    final res = await http.get(uri, headers: _headers).timeout(_timeout);
+    final client = await _getClient();
+    final res = await client.get(uri, headers: _headers).timeout(_timeout);
 
     if (res.statusCode != 200) _throwHttp('Stats request', res);
 
@@ -201,7 +210,8 @@ class DashboardApi {
 
     final uri = _buildUri('trends', params);
 
-    final res = await http.get(uri, headers: _headers).timeout(_timeout);
+    final client = await _getClient();
+    final res = await client.get(uri, headers: _headers).timeout(_timeout);
 
     if (res.statusCode != 200) _throwHttp('Trends request', res);
 
@@ -214,7 +224,8 @@ class DashboardApi {
   static Future<RecentResponse> getRecent({int limit = 5}) async {
     final uri = _buildUri('recent', {'limit': '$limit'});
 
-    final res = await http.get(uri, headers: _headers).timeout(_timeout);
+    final client = await _getClient();
+    final res = await client.get(uri, headers: _headers).timeout(_timeout);
 
     if (res.statusCode != 200) _throwHttp('Recent request', res);
 

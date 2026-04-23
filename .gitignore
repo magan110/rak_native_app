@@ -46,3 +46,15 @@ app.*.map.json
 
 # Local keystore properties (do not commit)
 key.properties
+
+# Keystores and signing files (do not commit)
+keystores/
+*.jks
+*.keystore
+
+# Firebase config (contains project IDs)
+google-services.json
+GoogleService-Info.plist
+
+# OS metadata
+**/.DS_Store

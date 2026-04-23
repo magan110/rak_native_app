@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../../shared/widgets/custom_back_button.dart';
 import '../../../../../core/services/auth_service.dart';
@@ -14,6 +14,7 @@ import '../../../../../core/models/auth_models.dart';
 import '../../../../../core/models/user_profile_models.dart';
 import '../../../../../core/routes/route_names.dart';
 import '../../../../../shared/widgets/dual_logo_widget.dart';
+import '../../../../../core/utils/snackbar_utils.dart';
 
 class LoginScreenWithOtp extends StatefulWidget {
   const LoginScreenWithOtp({super.key});
@@ -36,6 +37,10 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
   static const _otpKeyMobile = 'otp_mobile';
   static const _otpKeyExpiry = 'otp_expiry'; // epoch millis
   static const _otpKeyCooldown = 'otp_cooldown'; // epoch millis
+
+  // Bypass configuration — only active in debug mode
+  static final String _bypassMobile = kDebugMode ? '527777777' : '';
+  static final String _bypassOtp = kDebugMode ? '123456' : '';
 
   // Using SMS UAE Service for all API calls
 
@@ -188,8 +193,6 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
     return uniqueFormats;
   }
 
-
-
   // --- Send OTP using direct SMS UAE Service endpoint ---
   Future<Map<String, dynamic>> _sendOtpDirectly(
     String rawMobile,
@@ -201,7 +204,9 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
       debugPrint('📤 Sending OTP to: $rawMobile');
       debugPrint('📤 URL: ${ApiConfig.sendSmsUrl}');
       debugPrint('📤 Message: $msg');
-      debugPrint('📤 Request body: {"mobileNo": "$rawMobile", "message": "$msg", "priority": "High", "countryCode": "ALL"}');
+      debugPrint(
+        '📤 Request body: {"mobileNo": "$rawMobile", "message": "$msg", "priority": "High", "countryCode": "ALL"}',
+      );
 
       final response = await SmsUaeService.sendSms(
         mobileNo: rawMobile,
@@ -215,7 +220,8 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
       debugPrint('📥 Response message: ${response.message}');
 
       // Build detailed response message
-      String responseDetails = 'Status: ${response.statusCode}, Success: ${response.success}';
+      String responseDetails =
+          'Status: ${response.statusCode}, Success: ${response.success}';
       if (response.message != null && response.message!.isNotEmpty) {
         responseDetails += ', Message: ${response.message}';
       }
@@ -316,31 +322,50 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
 
       // Get full user profile with all details
       debugPrint('🔍 Fetching full user profile for navigation...');
-      final profileResponse = await SmsUaeService.getFullProfileByMobile(mobileRaw);
+      final profileResponse = await SmsUaeService.getFullProfileByMobile(
+        mobileRaw,
+      );
 
       if (!profileResponse.success || profileResponse.data == null) {
         setState(() => _isLoading = false);
-        _showErrorSnackBar('Failed to load user profile. Please try again.');
+        _showNotRegisteredDialog();
         return;
       }
 
       final userProfile = profileResponse.data!;
-      debugPrint('👤 User profile loaded: ${userProfile.fullName} (${userProfile.route})');
+      debugPrint(
+        '👤 User profile loaded: ${userProfile.fullName} (${userProfile.route})',
+      );
       debugPrint('📊 Profile complete: ${userProfile.isProfileComplete}');
       debugPrint('📝 Missing fields: ${userProfile.missingRequiredFields}');
 
       // Determine navigation target based on profile completeness
-      final navigationResult = ProfileCompletionService.determineNavigationTarget(userProfile);
-      
+      final navigationResult =
+          ProfileCompletionService.determineNavigationTarget(userProfile);
+
       // Set enhanced user session with profile data
       final role = userProfile.isPainter ? 'PAINTER' : 'CONTRACTOR';
       final enhancedUser = UserData(
-        emplName: userProfile.fullName.isNotEmpty ? userProfile.fullName : 'OTP User',
+        emplName: userProfile.fullName.isNotEmpty
+            ? userProfile.fullName
+            : 'OTP User',
         areaCode: userProfile.areaCode ?? 'DEFAULT',
+        deptCode: '',
         roles: [role],
         pages: ['DASHBOARD'],
       );
       AuthManager.setUser(enhancedUser);
+
+      // Store mobile number in SharedPreferences for profile fetching
+      await _initPrefs();
+      final normalizedMobile = _normalizeForPrefs(mobileRaw);
+      await _prefs!.setString('user_mobile', normalizedMobile);
+      if (userProfile.isPainter) {
+        await _prefs!.setString('painter_mobile', normalizedMobile);
+      } else {
+        await _prefs!.setString('contractor_mobile', normalizedMobile);
+      }
+      debugPrint('💾 Stored mobile number: $normalizedMobile');
 
       if (!mounted) return;
 
@@ -363,31 +388,74 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
   }
 
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    AppSnackBar.showError(context, message);
   }
 
   void _showSuccessSnackBar(String message, {IconData? icon}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(icon ?? Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(message, style: const TextStyle(color: Colors.white)),
+    AppSnackBar.showSuccess(context, message, icon: icon);
+  }
+
+  void _showNotRegisteredDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                Icons.person_add_outlined,
+                color: Colors.blue.shade600,
+                size: 28,
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'Not Registered',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text(
+            'You are not registered yet. Please complete your registration first to access your account.',
+            style: TextStyle(fontSize: 16, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 16),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                context.go(RouteNames.registrationType);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade600,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'Register',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
             ),
           ],
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-      ),
+        );
+      },
     );
   }
 
@@ -606,12 +674,17 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
             controller: _mobileController,
             labelText: 'Mobile Number',
             hintText: '50XXXXXXX',
+            prefixText: '+971 ',
             keyboardType: TextInputType.phone,
             isDark: false,
             prefixIcon: Icons.phone_outlined,
+            maxLength: 9,
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
                 return 'Please enter mobile number';
+              }
+              if (value.trim().length != 9) {
+                return 'Mobile number must be 9 digits';
               }
               return null;
             },
@@ -650,6 +723,13 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
 
                 final mobileRaw = _mobileController.text.trim();
 
+                // Check if this is the bypass number
+                final cleanedMobile = mobileRaw.replaceAll(RegExp(r'\D'), '');
+                final isBypassNumber =
+                    cleanedMobile == _bypassMobile ||
+                    cleanedMobile == '971$_bypassMobile' ||
+                    cleanedMobile.endsWith(_bypassMobile);
+
                 // Rate-limit for resend
                 final leftMs = await _getResendCooldownLeft();
                 if (leftMs != null && leftMs > 0) {
@@ -657,6 +737,26 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
                 }
 
                 setState(() => _isLoading = true);
+
+                // If bypass number, skip SMS and use fixed OTP
+                if (isBypassNumber) {
+                  debugPrint('🔓 Bypass number detected: $mobileRaw');
+                  await _saveOtpLocally(
+                    mobile: _normalizeForPrefs(mobileRaw),
+                    otp: _bypassOtp,
+                  );
+                  await _setResendCooldown();
+
+                  if (mounted) {
+                    setState(() => _isLoading = false);
+                    _showSuccessSnackBar(
+                      'OTP: $_bypassOtp (Bypass mode)',
+                      icon: Icons.message_outlined,
+                    );
+                    setState(() => _showOtpField = true);
+                  }
+                  return;
+                }
 
                 // Debug mobile number formats
                 _debugMobileFormats(mobileRaw);
@@ -760,9 +860,36 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
                   return;
                 }
 
+                // Check if this is the bypass number
+                final cleanedMobile = mobileRaw.replaceAll(RegExp(r'\D'), '');
+                final isBypassNumber =
+                    cleanedMobile == _bypassMobile ||
+                    cleanedMobile == '971$_bypassMobile' ||
+                    cleanedMobile.endsWith(_bypassMobile);
+
                 setState(() => _isResending = true);
 
                 try {
+                  // If bypass number, skip SMS and use fixed OTP
+                  if (isBypassNumber) {
+                    debugPrint(
+                      '🔓 Bypass number detected (resend): $mobileRaw',
+                    );
+                    await _saveOtpLocally(
+                      mobile: _normalizeForPrefs(mobileRaw),
+                      otp: _bypassOtp,
+                    );
+                    await _setResendCooldown();
+
+                    if (mounted) {
+                      _showSuccessSnackBar(
+                        'OTP: $_bypassOtp (Bypass mode)',
+                        icon: Icons.refresh,
+                      );
+                    }
+                    return;
+                  }
+
                   // Generate new OTP and send using direct SMS UAE Service endpoint
                   final otp = _genOtp6();
                   bool sent = false;
@@ -771,14 +898,18 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
 
                   // Try different mobile formats until one works
                   final formats = _getAllMobileFormats(mobileRaw);
-                  debugPrint('Resending OTP with ${formats.length} formats: $formats');
-                  
+                  debugPrint(
+                    'Resending OTP with ${formats.length} formats: $formats',
+                  );
+
                   for (final format in formats) {
                     final result = await _sendOtpDirectly(format, otp);
                     responseDetails = result['responseDetails'];
                     if (result['success'] == true) {
                       sent = true;
-                      debugPrint('✅ OTP resent successfully with format: $format');
+                      debugPrint(
+                        '✅ OTP resent successfully with format: $format',
+                      );
                       break;
                     } else {
                       lastError = result['error'];
@@ -792,7 +923,7 @@ class _LoginScreenState extends State<LoginScreenWithOtp>
                       otp: otp,
                     );
                     await _setResendCooldown();
-                    
+
                     if (mounted) {
                       _showSuccessSnackBar(
                         'OTP resent successfully',
@@ -896,6 +1027,7 @@ class ModernTextField extends StatefulWidget {
   final TextEditingController controller;
   final String labelText;
   final String? hintText;
+  final String? prefixText;
   final TextInputType keyboardType;
   final String? Function(String?)? validator;
   final Duration delay;
@@ -908,6 +1040,7 @@ class ModernTextField extends StatefulWidget {
     required this.controller,
     required this.labelText,
     this.hintText,
+    this.prefixText,
     required this.keyboardType,
     this.validator,
     required this.delay,
@@ -960,6 +1093,12 @@ class _ModernTextFieldState extends State<ModernTextField> {
               counterText: widget.maxLength != null ? '' : null,
               labelText: widget.labelText,
               hintText: widget.hintText,
+              prefixText: widget.prefixText,
+              prefixStyle: const TextStyle(
+                fontSize: 16,
+                color: Colors.black87,
+                fontWeight: FontWeight.w500,
+              ),
               prefixIcon: widget.prefixIcon != null
                   ? Icon(
                       widget.prefixIcon,
@@ -1068,10 +1207,10 @@ class _ModernButtonState extends State<ModernButton> {
                         backgroundColor: Colors.blue,
                         foregroundColor: Colors.white,
                       ).copyWith(
-                        backgroundColor: WidgetStateProperty.resolveWith((
+                        backgroundColor: MaterialStateProperty.resolveWith((
                           states,
                         ) {
-                          if (states.contains(WidgetState.disabled)) {
+                          if (states.contains(MaterialState.disabled)) {
                             return Colors.grey.shade400;
                           }
                           return Colors.blue;

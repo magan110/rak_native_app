@@ -6,6 +6,7 @@ import 'package:pdfx/pdfx.dart';
 import 'dart:io';
 import '../../core/utils/responsive_utils.dart';
 import '../../core/services/image_upload_service.dart';
+import '../../core/utils/snackbar_utils.dart';
 
 class FileUploadWidget extends StatefulWidget {
   final String label;
@@ -132,6 +133,10 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
 
   void _safeShowSnackBar(SnackBar bar) {
     if (mounted && _scaffoldMessenger != null) {
+      // Ensure we don't stack multiple SnackBars — hide any current one first.
+      try {
+        _scaffoldMessenger!.hideCurrentSnackBar();
+      } catch (_) {}
       _scaffoldMessenger!.showSnackBar(bar);
     }
   }
@@ -1362,12 +1367,20 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
       }
 
       final ImagePicker picker = ImagePicker();
+
+      // Debug: Print camera device preference
+      debugPrint('📷 Opening camera with rear camera preference');
+
       final XFile? photo = await picker.pickImage(
         source: ImageSource.camera,
+        preferredCameraDevice:
+            CameraDevice.rear, // Use back camera for documents
         maxWidth: 1920,
         maxHeight: 1080,
         imageQuality: 85,
       );
+
+      debugPrint('📷 Photo captured: ${photo?.path}');
 
       if (photo != null) {
         final file = File(photo.path);
@@ -1402,25 +1415,6 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
     Navigator.pop(context);
 
     try {
-      final photosStatus = await Permission.photos.request();
-
-      if (photosStatus.isDenied || photosStatus.isPermanentlyDenied) {
-        _safeShowSnackBar(
-          SnackBar(
-            content: const Text(
-              'Photo library permission is required to select images',
-            ),
-            backgroundColor: Colors.red,
-            action: SnackBarAction(
-              label: 'Settings',
-              textColor: Colors.white,
-              onPressed: () => openAppSettings(),
-            ),
-          ),
-        );
-        return;
-      }
-
       final ImagePicker picker = ImagePicker();
       final XFile? image = await picker.pickImage(
         source: ImageSource.gallery,
@@ -1462,38 +1456,6 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
     Navigator.pop(context);
 
     try {
-      PermissionStatus storageStatus;
-
-      if (Platform.isAndroid) {
-        if (await Permission.storage.request().isGranted) {
-          storageStatus = PermissionStatus.granted;
-        } else if (await Permission.photos.request().isGranted ||
-            await Permission.videos.request().isGranted) {
-          storageStatus = PermissionStatus.granted;
-        } else {
-          storageStatus = PermissionStatus.denied;
-        }
-      } else {
-        storageStatus = await Permission.storage.request();
-      }
-
-      if (storageStatus.isDenied || storageStatus.isPermanentlyDenied) {
-        _safeShowSnackBar(
-          SnackBar(
-            content: const Text(
-              'Storage permission is required to select files',
-            ),
-            backgroundColor: Colors.red,
-            action: SnackBarAction(
-              label: 'Settings',
-              textColor: Colors.white,
-              onPressed: () => openAppSettings(),
-            ),
-          ),
-        );
-        return;
-      }
-
       // Pick file - show all file types (PDFs, images, documents, etc.)
       final result = await FilePicker.platform.pickFiles(
         type: FileType.any,
@@ -1565,8 +1527,8 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
     _animationController?.repeat();
 
     // If server upload is enabled and we have person details, upload to server
-    if (widget.enableServerUpload && 
-        widget.personName != null && 
+    if (widget.enableServerUpload &&
+        widget.personName != null &&
         widget.mobileNumber != null &&
         _isImageFileLocal(filePath)) {
       _uploadToServer(filePath);
@@ -1583,7 +1545,9 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
             _uploadError = null;
           });
 
-          _showEnhancedSuccessSnackBar('${widget.label} uploaded successfully!');
+          _showEnhancedSuccessSnackBar(
+            '${widget.label} uploaded successfully!',
+          );
           widget.onFileSelected(filePath);
         }
       });
@@ -1591,55 +1555,23 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
   }
 
   Future<void> _uploadToServer(String filePath) async {
-    try {
-      final file = File(filePath);
-      final response = await ImageUploadService.uploadImage(
-        file: file,
-        personName: widget.personName!,
-        mobileNumber: widget.mobileNumber!,
-      );
+    // Note: Server upload is disabled in this widget
+    // Upload should be handled after registration is complete
+    // This method is kept for backward compatibility but does nothing
 
-      if (mounted) {
-        _animationController?.stop();
-        _animationController?.reset();
+    // Just mark as uploaded locally
+    if (mounted) {
+      _animationController?.stop();
+      _animationController?.reset();
 
-        setState(() {
-          _isUploading = false;
-          _isUploaded = true;
-          _uploadError = null;
-        });
+      setState(() {
+        _isUploading = false;
+        _isUploaded = true;
+        _uploadError = null;
+      });
 
-        _showEnhancedSuccessSnackBar('${widget.label} uploaded successfully to server!');
-        widget.onFileSelected(filePath);
-        
-        // Call success callback if provided
-        if (widget.onUploadSuccess != null) {
-          widget.onUploadSuccess!(response);
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        _animationController?.stop();
-        _animationController?.reset();
-
-        setState(() {
-          _isUploading = false;
-          _isUploaded = false;
-          _uploadError = e.toString();
-        });
-
-        _safeShowSnackBar(
-          SnackBar(
-            content: Text('Upload failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-
-        // Call error callback if provided
-        if (widget.onUploadError != null) {
-          widget.onUploadError!(e.toString());
-        }
-      }
+      _showEnhancedSuccessSnackBar('${widget.label} selected successfully!');
+      widget.onFileSelected(filePath);
     }
   }
 
@@ -1674,10 +1606,10 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
 
   Future<void> _retryUpload() async {
     if (_selectedFilePath == null) return;
-    
+
     // If server upload is enabled, retry server upload
-    if (widget.enableServerUpload && 
-        widget.personName != null && 
+    if (widget.enableServerUpload &&
+        widget.personName != null &&
         widget.mobileNumber != null &&
         _isImageFileLocal(_selectedFilePath!)) {
       setState(() {
@@ -1737,21 +1669,7 @@ class _FileUploadWidgetState extends State<FileUploadWidget>
   }
 
   void _showSuccessSnackBar(String message) {
-    _safeShowSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white, size: 20),
-            const SizedBox(width: 8),
-            Expanded(child: Text(message)),
-          ],
-        ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    AppSnackBar.showSuccess(context, message);
   }
 
   void _showEnhancedSuccessSnackBar(String message) {

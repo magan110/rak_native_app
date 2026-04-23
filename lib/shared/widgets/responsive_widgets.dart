@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/utils/responsive_utils.dart';
+import '../../core/utils/uae_phone_utils.dart';
 
 /// Responsive spacing widget that adapts to screen size
 class ResponsiveSpacing extends StatelessWidget {
@@ -230,6 +231,7 @@ class ResponsiveTextField extends StatelessWidget {
   final String? Function(String?)? validator;
   final bool obscureText;
   final bool isPhone;
+  final String? prefixText;
 
   const ResponsiveTextField({
     super.key,
@@ -248,14 +250,29 @@ class ResponsiveTextField extends StatelessWidget {
     this.validator,
     this.obscureText = false,
     this.isPhone = false,
+    this.prefixText,
   });
 
   @override
   Widget build(BuildContext context) {
     final IconData? actualIcon = icon ?? prefixIcon;
-    final TextInputType? actualKeyboardType = isPhone
+    final bool useUaePhoneField = UaePhoneUtils.isPhoneField(
+      keyboardType: keyboardType,
+      isPhone: isPhone,
+      label: label,
+      hint: hint,
+    );
+    final TextInputType? actualKeyboardType = useUaePhoneField
         ? TextInputType.phone
         : keyboardType;
+    final String? actualPrefixText = useUaePhoneField
+        ? (prefixText ?? UaePhoneUtils.countryPrefix)
+        : prefixText;
+    final String actualHint =
+        hint ?? (useUaePhoneField ? UaePhoneUtils.localHint : label);
+    final List<TextInputFormatter>? actualInputFormatters = useUaePhoneField
+        ? UaePhoneUtils.inputFormatters(additional: inputFormatters)
+        : inputFormatters;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,10 +301,10 @@ class ResponsiveTextField extends StatelessWidget {
           readOnly: readOnly,
           onTap: onTap,
           obscureText: obscureText,
-          inputFormatters: inputFormatters,
+          inputFormatters: actualInputFormatters,
           validator: validator,
           decoration: InputDecoration(
-            hintText: hint ?? label,
+            hintText: actualHint,
             hintStyle: TextStyle(
               color: Colors.grey[400],
               fontSize: ResponsiveUtils.getResponsiveFontSize(
@@ -300,6 +317,17 @@ class ResponsiveTextField extends StatelessWidget {
             prefixIcon: actualIcon != null
                 ? Icon(actualIcon, color: Colors.grey[600], size: 20)
                 : null,
+            prefixText: actualPrefixText,
+            prefixStyle: TextStyle(
+              fontSize: ResponsiveUtils.getResponsiveFontSize(
+                context,
+                mobile: 14,
+                tablet: 15,
+                desktop: 16,
+              ),
+              color: Colors.black87,
+              fontWeight: FontWeight.w500,
+            ),
             suffixIcon: suffixIcon,
             filled: true,
             fillColor: Colors.grey[50],

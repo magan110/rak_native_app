@@ -1,3 +1,5 @@
+import 'package:rak_app/core/utils/uae_phone_utils.dart';
+
 /// Form validators
 class Validators {
   /// Email validator
@@ -13,7 +15,7 @@ class Validators {
     }
     return null;
   }
-  
+
   /// Password validator
   static String? password(String? value, {int minLength = 8}) {
     if (value == null || value.isEmpty) {
@@ -24,7 +26,7 @@ class Validators {
     }
     return null;
   }
-  
+
   /// Required field validator
   static String? required(String? value, [String? fieldName]) {
     if (value == null || value.isEmpty) {
@@ -32,19 +34,12 @@ class Validators {
     }
     return null;
   }
-  
+
   /// Phone number validator
   static String? phone(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Phone number is required';
-    }
-    final phoneRegex = RegExp(r'^\+?[\d\s-]{10,}$');
-    if (!phoneRegex.hasMatch(value)) {
-      return 'Please enter a valid phone number';
-    }
-    return null;
+    return UaePhoneUtils.validate(value, required: true);
   }
-  
+
   /// Minimum length validator
   static String? minLength(String? value, int length) {
     if (value == null || value.isEmpty) {
@@ -55,7 +50,7 @@ class Validators {
     }
     return null;
   }
-  
+
   /// Maximum length validator
   static String? maxLength(String? value, int length) {
     if (value != null && value.length > length) {

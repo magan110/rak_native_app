@@ -18,8 +18,9 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "8.7.3" apply false
-    id("org.jetbrains.kotlin.android") version "2.1.0" apply false
+    // AGP 8.5.1+ required for 16 KB page size support (8.11.2 is compatible)
+    id("com.android.application") version "8.13.1" apply false
+    id("org.jetbrains.kotlin.android") version "2.2.21" apply false
 }
 
 include(":app")

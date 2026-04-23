@@ -1,0 +1,46 @@
+{
+  "nodes": [
+    {"id": "dashboard_service_dashboardservice", "label": "Dashboard Data Service", "file_type": "code", "source_file": "lib/core/services/dashboard_service.dart"},
+    {"id": "dsr_service_dsrservice", "label": "DSR (Daily Sales Report) Service", "file_type": "code", "source_file": "lib/core/services/dsr_service.dart"},
+    {"id": "emirates_id_ocr_service_emiratesidocrservice", "label": "Emirates ID OCR", "file_type": "code", "source_file": "lib/core/services/emirates_id_ocr_service.dart"},
+    {"id": "gemini_ocr_service_geminiocrservice", "label": "Gemini AI OCR Service", "file_type": "code", "source_file": "lib/core/services/gemini_ocr_service.dart"},
+    {"id": "hybrid_ocr_service_hybridocrservice", "label": "Hybrid OCR Service (ML + Gemini)", "file_type": "code", "source_file": "lib/core/services/hybrid_ocr_service.dart"},
+    {"id": "image_upload_service_imageuploadservice", "label": "Image Upload & S3 Service", "file_type": "code", "source_file": "lib/core/services/image_upload_service.dart"},
+    {"id": "kyc_status_service_kycstatusservice", "label": "KYC Workflow Service", "file_type": "code", "source_file": "lib/core/services/kyc_status_service.dart"},
+    {"id": "location_service_locationservice", "label": "Location & Geofencing Service", "file_type": "code", "source_file": "lib/core/services/location_service.dart"},
+    {"id": "maintenance_service_maintenanceservice", "label": "App Maintenance Service", "file_type": "code", "source_file": "lib/core/services/maintenance_service.dart"},
+    {"id": "market_mapping_service_marketmappingservice", "label": "Market Intelligence Service", "file_type": "code", "source_file": "lib/core/services/market_mapping_service.dart"},
+    {"id": "notification_service_notificationservice", "label": "Push Notification Service", "file_type": "code", "source_file": "lib/core/services/notification_service.dart"},
+    {"id": "otp_service_otpservice", "label": "OTP Verification Service", "file_type": "code", "source_file": "lib/core/services/otp_service.dart"},
+    {"id": "painter_service_painterservice", "label": "Painter Management Service", "file_type": "code", "source_file": "lib/core/services/painter_service.dart"},
+    {"id": "product_journey_service_productjourneyservice", "label": "Product Journey Tracking Service", "file_type": "code", "source_file": "lib/core/services/product_journey_service.dart"},
+    {"id": "profile_completion_service_profilecompletionservice", "label": "Profile Completion Tracker", "file_type": "code", "source_file": "lib/core/services/profile_completion_service.dart"},
+    {"id": "profile_details_service_profiledetailsservice", "label": "Profile Data Service", "file_type": "code", "source_file": "lib/core/services/profile_details_service.dart"},
+    {"id": "retailer_registration_service_retailerregistrationservice", "label": "Retailer Onboarding Service", "file_type": "code", "source_file": "lib/core/services/retailer_registration_service.dart"},
+    {"id": "sales_monitoring_service_salesmonitoringservice", "label": "Sales & Pipeline Service", "file_type": "code", "source_file": "lib/core/services/sales_monitoring_service.dart"},
+    {"id": "sample_distribution_service_sampledistributionservice", "label": "Sample Distribution Service", "file_type": "code", "source_file": "lib/core/services/sample_distribution_service.dart"},
+    {"id": "sampling_execution_service_samplingexecutionservice", "label": "Sampling Execution Tracker", "file_type": "code", "source_file": "lib/core/services/sampling_execution_service.dart"},
+    {"id": "sms_uae_service_smsuaeservice", "label": "UAE SMS Gateway Service", "file_type": "code", "source_file": "lib/core/services/sms_uae_service.dart"},
+    {"id": "stock_service_stockservice", "label": "Inventory & Stock Service", "file_type": "code", "source_file": "lib/core/services/stock_service.dart"}
+  ],
+  "edges": [
+    {"source": "hybrid_ocr_service_hybridocrservice", "target": "gemini_ocr_service_geminiocrservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/services/hybrid_ocr_service.dart"},
+    {"source": "profile_completion_service_profilecompletionservice", "target": "profile_details_service_profiledetailsservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/services/profile_completion_service.dart"},
+    {"source": "dsr_service_dsrservice", "target": "location_service_locationservice", "relation": "calls", "confidence": "INFERRED", "confidence_score": 0.9, "source_file": "lib/core/services/dsr_service.dart"},
+    {"source": "retailer_registration_service_retailerregistrationservice", "target": "image_upload_service_imageuploadservice", "relation": "calls", "confidence": "INFERRED", "confidence_score": 0.95, "source_file": "lib/core/services/retailer_registration_service.dart"},
+    {"source": "sampling_execution_service_samplingexecutionservice", "target": "sample_distribution_service_sampledistributionservice", "relation": "semantically_similar_to", "confidence": "INFERRED", "confidence_score": 0.85, "source_file": "lib/core/services"}
+  ],
+  "hyperedges": [
+    {
+      "id": "registration_workflow",
+      "label": "Omni-Stakeholder Registration Flow",
+      "nodes": ["retailer_registration_service_retailerregistrationservice", "painter_service_painterservice", "contractor_service_contractorservice"],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "lib/core/services"
+    }
+  ],
+  "input_tokens": 15000,
+  "output_tokens": 2500
+}

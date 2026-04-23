@@ -1,0 +1,15 @@
+{
+  "nodes": [
+    {"id": "field_mapping_doc", "label": "Stakeholder Field Mapping Guide", "file_type": "document", "source_file": "lib/features/user_management/FIELD_MAPPING.md"},
+    {"id": "user_management_readme", "label": "User Management Overview", "file_type": "document", "source_file": "lib/features/user_management/README.md"},
+    {"id": "user_management_troubleshooting_doc", "label": "User Management Troubleshooting", "file_type": "document", "source_file": "lib/features/user_management/TROUBLESHOOTING.md"}
+  ],
+  "edges": [
+    {"source": "field_mapping_doc", "target": "contractor_registration_screen_contractorregistrationscreen", "relation": "rationale_for", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/user_management/FIELD_MAPPING.md"},
+    {"source": "field_mapping_doc", "target": "user_edit_screen_usereditscreen", "relation": "rationale_for", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/user_management/FIELD_MAPPING.md"},
+    {"source": "user_management_troubleshooting_doc", "target": "user_list_service_userlistservice", "relation": "rationale_for", "confidence": "INFERRED", "confidence_score": 0.9, "source_file": "lib/features/user_management/TROUBLESHOOTING.md"}
+  ],
+  "hyperedges": [],
+  "input_tokens": 5000,
+  "output_tokens": 1000
+}

@@ -3,8 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:rak_app/core/models/approval_models.dart';
 import 'package:rak_app/core/services/approval_service.dart';
-import 'package:rak_app/core/theme/theme.dart';
 import 'package:rak_app/shared/widgets/custom_back_button.dart';
+import 'package:rak_app/shared/widgets/document_viewer_widget.dart';
 
 class RegistrationDetailsScreen extends StatefulWidget {
   final String? registrationId;
@@ -30,6 +30,8 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
   RegistrationDetails? _registrationData;
   bool _isLoading = false;
   String? _errorMessage;
+
+  int _currentStep = 0; // 0 = Emirates ID, 1 = Other Details
 
   @override
   void initState() {
@@ -146,6 +148,15 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
       setState(() {
         _registrationData = details;
         _isLoading = false;
+
+        // Set current step based on stage
+        if (details.stage == 'EID_APPROVED') {
+          _currentStep = 1; // Show other details
+        } else if (details.stage == 'FINAL' || details.stage == 'REJECTED') {
+          _currentStep = 1; // Show all details for completed registrations
+        } else {
+          _currentStep = 0; // Show Emirates ID step
+        }
       });
     } catch (e) {
       print('DEBUG: Error loading details: $e');
@@ -190,7 +201,7 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
     }
   }
 
-  Future<void> _approveRegistration() async {
+  Future<void> _approveEmiratesId() async {
     if (_registrationData == null || _registrationData!.id.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -200,7 +211,6 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
       return;
     }
 
-    // Show loading indicator
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Row(
@@ -211,7 +221,7 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             SizedBox(width: 16),
-            Text('Approving registration...'),
+            Text('Approving Emirates ID...'),
           ],
         ),
         duration: Duration(seconds: 30),
@@ -219,13 +229,77 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
     );
 
     try {
-      // Get the inflCode for this item (same as approval dashboard)
-      final inflCode = await _approvalService.lookupInflCode(_registrationData!.id);
-      
-      // Approve the item using inflCode
-      await _approvalService.approveItem(inflCode);
-      
-      // Hide loading and show success
+      final inflCode = await _approvalService.lookupInflCode(
+        _registrationData!.id,
+      );
+      await _approvalService.approveEmiratesId(inflCode);
+
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Emirates ID approved successfully! Proceeding to next step...',
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Move to next step after a brief delay
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Reload details and move to step 2
+      _loadRegistrationDetails();
+
+      if (mounted) {
+        setState(() {
+          _currentStep = 1;
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to approve Emirates ID: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _approveFinal() async {
+    if (_registrationData == null || _registrationData!.id.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No registration ID available for approval'),
+        ),
+      );
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 16),
+            Text('Approving final registration...'),
+          ],
+        ),
+        duration: Duration(seconds: 30),
+      ),
+    );
+
+    try {
+      final inflCode = await _approvalService.lookupInflCode(
+        _registrationData!.id,
+      );
+      await _approvalService.approveFinal(inflCode);
+
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -233,10 +307,10 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
           backgroundColor: Colors.green,
         ),
       );
+
       // Navigate back to dashboard with refresh signal
       Navigator.pop(context, true);
     } catch (e) {
-      // Hide loading and show error
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -277,11 +351,13 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
 
     try {
       // Get the inflCode for this item (same as approval dashboard)
-      final inflCode = await _approvalService.lookupInflCode(_registrationData!.id);
-      
+      final inflCode = await _approvalService.lookupInflCode(
+        _registrationData!.id,
+      );
+
       // Reject the item using inflCode with reason
       await _approvalService.rejectItem(inflCode, reason: reason);
-      
+
       // Hide loading and show success
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -419,17 +495,17 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
             // Header with animation
             _buildAnimatedHeader(),
             SizedBox(height: 24.h),
-            // Registration Information Card
-            _buildRegistrationInfoCard(0),
-            SizedBox(height: 16.h),
-            // Personal Details Card
-            _buildPersonalDetailsCard(1),
-            SizedBox(height: 16.h),
-            // Business Details Card
-            _buildBusinessDetailsCard(2),
-            SizedBox(height: 16.h),
-            // Bank Details Card
-            _buildBankDetailsCard(3),
+            // Step Indicator
+            _buildStepIndicator(),
+            SizedBox(height: 24.h),
+            // Step-based content
+            if (_currentStep == 0) ...[
+              // Step 1: Emirates ID Details
+              _buildEmiratesIdSection(),
+            ] else ...[
+              // Step 2: Other Details
+              _buildOtherDetailsSection(),
+            ],
             SizedBox(height: 24.h),
             // Action Buttons
             _buildActionButtons(),
@@ -437,6 +513,401 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildStepIndicator() {
+    final stage = _registrationData?.stage ?? 'EID_PENDING';
+
+    // Don't show step indicator if already approved or rejected
+    if (stage == 'FINAL' || stage == 'REJECTED') {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: EdgeInsets.all(16.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12.r),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10.r,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              // Step 1
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _currentStep = 0;
+                    });
+                  },
+                  child: _buildStepItem(
+                    stepNumber: 1,
+                    title: 'Emirates ID',
+                    isActive: _currentStep == 0,
+                    isCompleted: _currentStep > 0 || stage == 'EID_APPROVED',
+                  ),
+                ),
+              ),
+              SizedBox(width: 16.w),
+              // Connector
+              Expanded(
+                flex: 0,
+                child: Container(
+                  height: 2.h,
+                  width: 40.w,
+                  color: _currentStep > 0 || stage == 'EID_APPROVED'
+                      ? Colors.green
+                      : Colors.grey.shade300,
+                ),
+              ),
+              SizedBox(width: 16.w),
+              // Step 2
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _currentStep = 1;
+                    });
+                  },
+                  child: _buildStepItem(
+                    stepNumber: 2,
+                    title: 'Other Details',
+                    isActive: _currentStep == 1,
+                    isCompleted: stage == 'FINAL',
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16.h),
+          // Navigation buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _currentStep > 0
+                      ? () {
+                          setState(() {
+                            _currentStep--;
+                          });
+                        }
+                      : null,
+                  icon: const Icon(Icons.arrow_back),
+                  label: const Text('Previous'),
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(vertical: 12.h),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.r),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _currentStep < 1
+                      ? () {
+                          setState(() {
+                            _currentStep++;
+                          });
+                        }
+                      : null,
+                  icon: const Icon(Icons.arrow_forward),
+                  label: const Text('Next'),
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(vertical: 12.h),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.r),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepItem({
+    required int stepNumber,
+    required String title,
+    required bool isActive,
+    required bool isCompleted,
+  }) {
+    Color bgColor;
+    Color textColor;
+    Widget icon;
+
+    if (isCompleted) {
+      bgColor = Colors.green;
+      textColor = Colors.white;
+      icon = Icon(Icons.check, color: Colors.white, size: 16.r);
+    } else if (isActive) {
+      bgColor = Colors.blue;
+      textColor = Colors.white;
+      icon = Text(
+        '$stepNumber',
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14.sp,
+        ),
+      );
+    } else {
+      bgColor = Colors.grey.shade300;
+      textColor = Colors.grey.shade600;
+      icon = Text(
+        '$stepNumber',
+        style: TextStyle(
+          color: Colors.grey.shade600,
+          fontWeight: FontWeight.bold,
+          fontSize: 14.sp,
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Container(
+          width: 32.r,
+          height: 32.r,
+          decoration: BoxDecoration(color: bgColor, shape: BoxShape.circle),
+          child: Center(child: icon),
+        ),
+        SizedBox(height: 8.h),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12.sp,
+            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+            color: textColor,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmiratesIdSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: EdgeInsets.all(16.w),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(12.r),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.credit_card, color: Colors.blue.shade700, size: 24.r),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Text(
+                  'Step 1: Review and Approve Emirates ID',
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 16.h),
+        _buildBasicInfoCard(0),
+        SizedBox(height: 16.h),
+        _buildEmiratesIdCard(1),
+        SizedBox(height: 16.h),
+        _buildEmiratesIdDocumentsCard(),
+      ],
+    );
+  }
+
+  Widget _buildBasicInfoCard(int cardIndex) {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    return ScaleTransition(
+      scale: _cardAnimations[cardIndex],
+      child: Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 10.r,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36.r,
+                  height: 36.r,
+                  decoration: BoxDecoration(
+                    color: Colors.cyan.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.info_rounded,
+                    color: Colors.cyan.shade700,
+                    size: 18.r,
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Text(
+                  'Basic Information',
+                  style: TextStyle(
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 16.h),
+            _buildInfoRow('Registration ID:', _registrationData!.id),
+            _buildInfoRow('Full Name:', _registrationData!.fullName),
+            _buildInfoRow('Type:', _registrationData!.type),
+            _buildInfoRow('Mobile:', _registrationData!.mobile),
+            _buildInfoRow('Submitted Date:', _registrationData!.submittedDate),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmiratesIdCard(int cardIndex) {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    final eid = _registrationData!.emiratesId;
+
+    return ScaleTransition(
+      scale: _cardAnimations[cardIndex],
+      child: Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12.r),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.1),
+              blurRadius: 10.r,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36.r,
+                  height: 36.r,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.credit_card,
+                    color: Colors.blue.shade700,
+                    size: 18.r,
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Text(
+                  'Emirates ID Details',
+                  style: TextStyle(
+                    fontSize: 16.sp,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 16.h),
+            _buildInfoRow('ID Number:', eid?.number ?? 'N/A'),
+            _buildInfoRow('ID Holder:', eid?.idHolder ?? 'N/A'),
+            _buildInfoRow('Nationality:', eid?.nationality ?? 'N/A'),
+            _buildInfoRow('Employer:', eid?.employer ?? 'N/A'),
+            _buildInfoRow('Issue Date:', eid?.issueDate ?? 'N/A'),
+            _buildInfoRow('Expiry Date:', eid?.expiryDate ?? 'N/A'),
+            _buildInfoRow('Occupation:', eid?.occupation ?? 'N/A'),
+            _buildInfoRow('Emirate:', eid?.emirate ?? 'N/A'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOtherDetailsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: EdgeInsets.all(16.w),
+          decoration: BoxDecoration(
+            color: Colors.green.shade50,
+            borderRadius: BorderRadius.circular(12.r),
+            border: Border.all(color: Colors.green.shade200),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.check_circle,
+                color: Colors.green.shade700,
+                size: 24.r,
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: Text(
+                  'Step 2: Review and Approve Other Details',
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 16.h),
+        _buildPersonalDetailsCard(0),
+        SizedBox(height: 16.h),
+        _buildPersonalDocumentsCard(),
+        SizedBox(height: 16.h),
+        _buildBusinessDetailsCard(1),
+        SizedBox(height: 16.h),
+        _buildBusinessDocumentsCard(),
+        SizedBox(height: 16.h),
+        _buildBankDetailsCard(2),
+        SizedBox(height: 16.h),
+        _buildBankDocumentsCard(),
+      ],
     );
   }
 
@@ -476,11 +947,27 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
       return const SizedBox.shrink();
     }
 
-    final statusColor = _registrationData!.status == 'Pending'
+    final status = _registrationData!.status;
+    final stage = _registrationData!.stage;
+
+    final statusColor = status == 'Pending'
         ? Colors.orange
-        : _registrationData!.status == 'Approved'
+        : status == 'Approved'
         ? Colors.green
+        : status == 'EID Approved'
+        ? Colors.blue
         : Colors.red;
+
+    String stageText = '';
+    if (stage == 'EID_PENDING') {
+      stageText = 'Awaiting Emirates ID Approval';
+    } else if (stage == 'EID_APPROVED') {
+      stageText = 'Emirates ID Approved - Awaiting Final';
+    } else if (stage == 'FINAL') {
+      stageText = 'Fully Approved';
+    } else if (stage == 'REJECTED') {
+      stageText = 'Rejected';
+    }
 
     return Container(
       width: double.infinity,
@@ -561,7 +1048,7 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
                             borderRadius: BorderRadius.circular(12.r),
                           ),
                           child: Text(
-                            _registrationData!.status,
+                            status,
                             style: TextStyle(
                               fontSize: 12.sp,
                               fontWeight: FontWeight.bold,
@@ -571,6 +1058,27 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
                         ),
                       ],
                     ),
+                    if (stageText.isNotEmpty) ...[
+                      SizedBox(height: 8.h),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 10.w,
+                          vertical: 6.h,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8.r),
+                        ),
+                        child: Text(
+                          stageText,
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -600,68 +1108,6 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildRegistrationInfoCard(int cardIndex) {
-    if (_registrationData == null) {
-      return const SizedBox.shrink();
-    }
-
-    return ScaleTransition(
-      scale: _cardAnimations[cardIndex],
-      child: Container(
-        padding: EdgeInsets.all(16.w),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12.r),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withOpacity(0.1),
-              blurRadius: 10.r,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 36.r,
-                  height: 36.r,
-                  decoration: BoxDecoration(
-                    color: Colors.cyan.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.info_rounded,
-                    color: Colors.cyan.shade700,
-                    size: 18.r,
-                  ),
-                ),
-                SizedBox(width: 12.w),
-                Text(
-                  'Registration Information',
-                  style: TextStyle(
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 16.h),
-            _buildInfoRow('Registration ID:', _registrationData!.id),
-            _buildInfoRow('Name:', _registrationData!.name),
-            _buildInfoRow('Type:', _registrationData!.type),
-            _buildInfoRow('Mobile:', _registrationData!.mobile),
-            _buildInfoRow('Submitted Date:', _registrationData!.submittedDate),
-            _buildInfoRow('Status:', _registrationData!.status),
-          ],
-        ),
       ),
     );
   }
@@ -842,6 +1288,157 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
     );
   }
 
+  // Emirates ID Documents (Step 1)
+  Widget _buildEmiratesIdDocumentsCard() {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    final documents = <DocumentItem>[];
+
+    // Emirates ID documents
+    if (_registrationData!.emiratesIdFront != null) {
+      documents.add(
+        DocumentItem(
+          label: 'Emirates ID - Front',
+          path: _registrationData!.emiratesIdFront,
+          isNetworkImage: true,
+        ),
+      );
+    }
+    if (_registrationData!.emiratesIdBack != null) {
+      documents.add(
+        DocumentItem(
+          label: 'Emirates ID - Back',
+          path: _registrationData!.emiratesIdBack,
+          isNetworkImage: true,
+        ),
+      );
+    }
+
+    if (documents.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return DocumentViewerWidget(
+      documents: documents,
+      readOnly: true,
+      padding: EdgeInsets.zero,
+    );
+  }
+
+  // Personal Documents (Profile Photo)
+  Widget _buildPersonalDocumentsCard() {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    final documents = <DocumentItem>[];
+
+    // Profile photo
+    if (_registrationData!.profilePhoto != null) {
+      documents.add(
+        DocumentItem(
+          label: 'Profile Photo',
+          path: _registrationData!.profilePhoto,
+          isNetworkImage: true,
+        ),
+      );
+    }
+
+    if (documents.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return DocumentViewerWidget(
+      documents: documents,
+      readOnly: true,
+      padding: EdgeInsets.zero,
+    );
+  }
+
+  // Business Documents (Contractor-specific)
+  Widget _buildBusinessDocumentsCard() {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    // Only show for contractors
+    if (!_registrationData!.type.toLowerCase().contains('contractor')) {
+      return const SizedBox.shrink();
+    }
+
+    final documents = <DocumentItem>[];
+
+    if (_registrationData!.contractorCertificate != null) {
+      documents.add(
+        DocumentItem(
+          label: 'Contractor Certificate',
+          path: _registrationData!.contractorCertificate,
+          isNetworkImage: true,
+        ),
+      );
+    }
+    if (_registrationData!.vatCertificate != null) {
+      documents.add(
+        DocumentItem(
+          label: 'VAT Certificate',
+          path: _registrationData!.vatCertificate,
+          isNetworkImage: true,
+        ),
+      );
+    }
+    if (_registrationData!.commercialLicense != null) {
+      documents.add(
+        DocumentItem(
+          label: 'Commercial License',
+          path: _registrationData!.commercialLicense,
+          isNetworkImage: true,
+        ),
+      );
+    }
+
+    if (documents.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return DocumentViewerWidget(
+      documents: documents,
+      readOnly: true,
+      padding: EdgeInsets.zero,
+    );
+  }
+
+  // Bank Documents
+  Widget _buildBankDocumentsCard() {
+    if (_registrationData == null) {
+      return const SizedBox.shrink();
+    }
+
+    final documents = <DocumentItem>[];
+
+    // Bank document
+    if (_registrationData!.bankDocument != null) {
+      documents.add(
+        DocumentItem(
+          label: 'Bank Document',
+          path: _registrationData!.bankDocument,
+          isNetworkImage: true,
+        ),
+      );
+    }
+
+    if (documents.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return DocumentViewerWidget(
+      documents: documents,
+      readOnly: true,
+      padding: EdgeInsets.zero,
+    );
+  }
+
   Widget _buildInfoRow(String label, String value) {
     return Padding(
       padding: EdgeInsets.only(bottom: 12.h),
@@ -872,177 +1469,216 @@ class _RegistrationDetailsScreenState extends State<RegistrationDetailsScreen>
   }
 
   Widget _buildActionButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () {
-              _showApproveDialog(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-              elevation: 4,
-              padding: EdgeInsets.symmetric(vertical: 12.h),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8.r),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.check_circle_rounded),
-                SizedBox(width: 8.w),
-                Text(
-                  'Approve',
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        SizedBox(width: 16.w),
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () {
-              _showRejectDialog(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              elevation: 4,
-              padding: EdgeInsets.symmetric(vertical: 12.h),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8.r),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.cancel_rounded),
-                SizedBox(width: 8.w),
-                Text(
-                  'Reject',
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+    if (_registrationData == null) return const SizedBox.shrink();
 
-  void _showApproveDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16.r),
+    final stage = _registrationData!.stage;
+    final status = _registrationData!.status;
+
+    // If already approved or rejected, show status only
+    if (status == 'Approved' || status == 'Rejected') {
+      return Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: status == 'Approved'
+              ? Colors.green.shade50
+              : Colors.red.shade50,
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(
+            color: status == 'Approved' ? Colors.green : Colors.red,
+            width: 2,
+          ),
         ),
-        child: Container(
-          padding: EdgeInsets.all(24.w),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 60.r,
-                height: 60.r,
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.check_circle_rounded,
-                  size: 30.r,
-                  color: Colors.green,
-                ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              status == 'Approved' ? Icons.check_circle : Icons.cancel,
+              color: status == 'Approved' ? Colors.green : Colors.red,
+              size: 24.r,
+            ),
+            SizedBox(width: 12.w),
+            Text(
+              'Registration ${status}',
+              style: TextStyle(
+                fontSize: 16.sp,
+                fontWeight: FontWeight.bold,
+                color: status == 'Approved'
+                    ? Colors.green.shade700
+                    : Colors.red.shade700,
               ),
-              SizedBox(height: 16.h),
-              Text(
-                'Approve Registration',
-                style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 16.h),
-              Text(
-                'Are you sure you want to approve this registration?',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14.sp),
-              ),
-              SizedBox(height: 8.h),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Step-based approval buttons - only show when on the correct step for the current stage
+    if (_currentStep == 0 && stage == 'EID_PENDING') {
+      // Step 1: Approve Emirates ID (only when stage is EID_PENDING)
+      return Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: ElevatedButton(
+              onPressed: _approveEmiratesId,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                elevation: 4,
+                padding: EdgeInsets.symmetric(vertical: 16.h),
+                shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12.r),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.star_rounded, color: Colors.amber, size: 16.r),
-                    SizedBox(width: 4.w),
-                    Flexible(
-                      child: Text(
-                        '100 bonus points will be awarded upon approval.',
-                        style: TextStyle(
-                          fontSize: 12.sp,
-                          fontWeight: FontWeight.w500,
-                          color: const Color.fromARGB(255, 19, 149, 255),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
-              SizedBox(height: 24.h),
-              Row(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.r),
-                        ),
-                      ),
-                      child: Text('Cancel', style: AppTheme.body),
-                    ),
-                  ),
-                  SizedBox(width: 16.w),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        Navigator.pop(context);
-                        await _approveRegistration();
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(vertical: 12.h),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.r),
-                        ),
-                      ),
-                      child: Text(
-                        'Approve',
-                        style: AppTheme.success.copyWith(color: Colors.white),
-                      ),
+                  const Icon(Icons.credit_card),
+                  SizedBox(width: 8.w),
+                  Text(
+                    'Approve Emirates ID',
+                    style: TextStyle(
+                      fontSize: 15.sp,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
           ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () {
+                _showRejectDialog(context);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red, width: 2),
+                padding: EdgeInsets.symmetric(vertical: 16.h),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+              ),
+              child: Text(
+                'Reject',
+                style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (_currentStep == 1 && stage == 'EID_APPROVED') {
+      // Step 2: Final approval (only when stage is EID_APPROVED)
+      return Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: ElevatedButton(
+              onPressed: _approveFinal,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                elevation: 4,
+                padding: EdgeInsets.symmetric(vertical: 16.h),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.check_circle_rounded),
+                  SizedBox(width: 8.w),
+                  Text(
+                    'Final Approval',
+                    style: TextStyle(
+                      fontSize: 15.sp,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () {
+                _showRejectDialog(context);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red, width: 2),
+                padding: EdgeInsets.symmetric(vertical: 16.h),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12.r),
+                ),
+              ),
+              child: Text(
+                'Reject',
+                style: TextStyle(fontSize: 15.sp, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (_currentStep == 0 && stage == 'EID_APPROVED') {
+      // Viewing Step 1 after it's already approved - show info message
+      return Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.blue.shade50,
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(color: Colors.blue.shade200),
         ),
-      ),
-    );
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle, color: Colors.blue.shade700, size: 20.r),
+            SizedBox(width: 12.w),
+            Text(
+              'Emirates ID Already Approved',
+              style: TextStyle(
+                fontSize: 14.sp,
+                fontWeight: FontWeight.bold,
+                color: Colors.blue.shade700,
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (_currentStep == 1 && stage == 'EID_PENDING') {
+      // Viewing Step 2 before Step 1 is approved - show info message
+      return Container(
+        padding: EdgeInsets.all(16.w),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(color: Colors.orange.shade200),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.info, color: Colors.orange.shade700, size: 20.r),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Text(
+                'Please approve Emirates ID first (Step 1)',
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange.shade700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Default fallback
+    return const SizedBox.shrink();
   }
 
   void _showRejectDialog(BuildContext context) {

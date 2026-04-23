@@ -2,10 +2,18 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:rak_app/core/config/api_config.dart';
 import 'package:rak_app/core/models/admin_user_models.dart';
+import '../network/ssl_http_client.dart';
 
 /// Admin User Service for managing user data by registration ID
 class AdminUserService {
   static const String _baseUrl = 'https://qa.birlawhite.com:55232/api/UseUpdate';
+  static http.Client? _httpClient;
+
+  /// Get SSL-enabled HTTP client
+  static Future<http.Client> _getClient() async {
+    _httpClient ??= await SslHttpClient.getClient();
+    return _httpClient!;
+  }
 
   /// Fetch user details by registration ID (inflCode)
   static Future<AdminUserResponse> getUserByInflCode(String inflCode) async {
@@ -20,7 +28,8 @@ class AdminUserService {
       final url = Uri.parse('$_baseUrl/by-inflcode/${inflCode.trim()}');
       print('DEBUG: Fetching user from: $url'); // Debug log
       
-      final response = await http.get(
+      final client = await _getClient();
+      final response = await client.get(
         url,
         headers: ApiConfig.standardHeaders,
       ).timeout(ApiConfig.defaultTimeout);
@@ -54,8 +63,9 @@ class AdminUserService {
   /// Update user details by registration ID (inflCode)
   static Future<AdminUserUpdateResponse> updateUserByInflCode(
     String inflCode,
-    AdminUserData userData,
-  ) async {
+    AdminUserData userData, {
+    String? loginId,
+  }) async {
     try {
       if (inflCode.trim().isEmpty) {
         return AdminUserUpdateResponse(
@@ -65,7 +75,7 @@ class AdminUserService {
       }
 
       final url = Uri.parse('$_baseUrl/update-by-inflcode/${inflCode.trim()}');
-      final updateData = userData.toUpdateJson();
+      final updateData = userData.toUpdateJson(loginId: loginId);
 
       print('DEBUG: Update URL: $url'); // Debug log
       print('DEBUG: Update data: ${json.encode(updateData)}'); // Debug log
@@ -78,7 +88,8 @@ class AdminUserService {
         );
       }
 
-      final response = await http.post(
+      final client = await _getClient();
+      final response = await client.post(
         url,
         headers: ApiConfig.standardHeaders,
         body: json.encode(updateData),
@@ -144,7 +155,8 @@ class AdminUserService {
 
       print('DEBUG: Search URL: $uri'); // Debug log
       
-      final response = await http.get(
+      final client = await _getClient();
+      final response = await client.get(
         uri,
         headers: ApiConfig.standardHeaders,
       ).timeout(ApiConfig.defaultTimeout);

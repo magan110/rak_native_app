@@ -1,6 +1,7 @@
+import 'package:rak_app/core/utils/uae_phone_utils.dart';
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -9,19 +10,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rak_app/core/routes/route_names.dart';
 import '../../../../../core/services/emirates_id_ocr_service.dart';
 import '../../../../../core/services/bank_details_ocr_service.dart';
+import '../../../../../core/services/hybrid_ocr_service.dart';
 import '../../../../../core/services/painter_service.dart';
 import '../../../../../core/services/autologin_service.dart';
+import '../../../../../core/services/auth_service.dart';
 import '../../../../../core/services/image_upload_service.dart';
 import '../../../../../core/services/sms_uae_service.dart';
+import '../../../../../core/services/kyc_status_service.dart';
 import '../../../../../core/config/api_config.dart';
 import '../../../../../core/models/painter_models.dart';
+import '../../../../../core/models/kyc_status_models.dart';
 import '../../../../../shared/widgets/custom_back_button.dart';
 import '../../../../../shared/widgets/file_upload_widget.dart';
 import '../../../../../shared/widgets/modern_dropdown.dart';
 import '../../../../../shared/widgets/responsive_widgets.dart';
+import '../../../../../shared/widgets/kyc_status_widget.dart';
+import '../../../../../core/utils/snackbar_utils.dart';
 
 class PainterRegistrationScreen extends StatefulWidget {
-  const PainterRegistrationScreen({super.key});
+  final bool isEmployeeRegistration;
+
+  const PainterRegistrationScreen({
+    super.key,
+    this.isEmployeeRegistration = false,
+  });
 
   @override
   State<PainterRegistrationScreen> createState() =>
@@ -90,15 +102,46 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   static const _otpKeyExpiry = 'painter_otp_expiry';
   static const _otpKeyCooldown = 'painter_otp_cooldown';
 
-  String? _selectedEmirate;
+  // Bypass configuration — only active in debug mode
+  static final String _bypassMobile = kDebugMode ? '527777777' : '';
+  static final String _bypassOtp = kDebugMode ? '123456' : '';
 
-  // OCR service instances
+  String? _selectedEmirate;
+  String? _selectedEmirateCode;
+  List<EmirateItem> _emiratesList = [];
+  List<AreaItem> _areasList = [];
+  List<SubAreaItem> _subAreasList = [];
+  String? _selectedAreaCode;
+  String? _selectedAreaName;
+  String? _selectedSubAreaCode;
+  String? _selectedSubAreaName;
+  bool _hasSubArea = false;
+  final TextEditingController _poBoxController = TextEditingController();
+
+  // KYC Status state
+  KycStatusResponse? _kycStatus;
+  bool _isCheckingKycStatus = false;
+
+  // Scroll controller for scrolling to top on step change
+  final ScrollController _scrollController = ScrollController();
+
+  // Hybrid OCR service (Gemini with ML Kit fallback)
+  final HybridOcrService _hybridOcrService = HybridOcrService();
+
+  // Legacy OCR services (kept for compatibility)
   final EmiratesIdOcrService _ocrService = EmiratesIdOcrService();
   final BankDetailsOcrService _bankOcrService = BankDetailsOcrService();
 
   @override
   void initState() {
     super.initState();
+
+    // Skip mobile verification step for employee registration
+    if (widget.isEmployeeRegistration) {
+      _currentStep = 2; // Start from Emirates ID step
+      _isOtpVerified = true; // Mark as verified to allow progression
+    }
+
     _mainController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
@@ -129,15 +172,23 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     _mainController.forward();
     _fabController.forward();
 
-    // Add listener for mobile number validation
-    _mobileController.addListener(_onMobileNumberChanged);
+    // Add listener for mobile number validation only if not employee registration
+    if (!widget.isEmployeeRegistration) {
+      _mobileController.addListener(_onMobileNumberChanged);
+    }
+
+    // Load emirates master list
+    _loadEmirates();
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
     _resendTimer?.cancel();
-    _mobileController.removeListener(_onMobileNumberChanged);
+    if (!widget.isEmployeeRegistration) {
+      _mobileController.removeListener(_onMobileNumberChanged);
+    }
+    _scrollController.dispose();
     _mainController.dispose();
     _fabController.dispose();
     _firstNameController.dispose();
@@ -159,6 +210,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     _bankNameController.dispose();
     _branchNameController.dispose();
     _bankAddressController.dispose();
+    _poBoxController.dispose();
     super.dispose();
   }
 
@@ -167,6 +219,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: CustomScrollView(
+        controller: _scrollController,
         slivers: [
           SliverAppBar(
             expandedHeight: 200.h,
@@ -429,6 +482,12 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                 setState(() {
                   _currentStep--;
                 });
+                // Scroll to top
+                _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                );
               },
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFF1E3A8A),
@@ -461,21 +520,58 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         Expanded(
           child: ElevatedButton(
             onPressed: () {
-              if (_currentStep == 1 && !_isOtpVerified) {
+              // Skip OTP verification for employee registration
+              if (_currentStep == 1 &&
+                  !_isOtpVerified &&
+                  !widget.isEmployeeRegistration) {
                 // Cannot proceed without OTP verification
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please verify your mobile number with OTP first'),
-                    backgroundColor: Colors.orange,
-                  ),
+                AppSnackBar.showWarning(
+                  context,
+                  'Please verify your mobile number with OTP first',
                 );
                 return;
               }
-              
+
+              // Validate emirates/area/subarea when moving from step 3 to step 4
+              if (_currentStep == 3) {
+                if (_selectedEmirateCode == null ||
+                    _selectedEmirateCode!.isEmpty) {
+                  AppSnackBar.showError(
+                    context,
+                    'Please select an emirate to continue',
+                  );
+                  return;
+                }
+
+                if (_selectedAreaCode == null || _selectedAreaCode!.isEmpty) {
+                  AppSnackBar.showError(
+                    context,
+                    'Please select an area to continue',
+                  );
+                  return;
+                }
+
+                if (_hasSubArea == true &&
+                    (_selectedSubAreaCode == null ||
+                        _selectedSubAreaCode!.isEmpty)) {
+                  AppSnackBar.showError(
+                    context,
+                    'Please select a sub-area to continue',
+                  );
+                  return;
+                }
+              }
+
               if (_currentStep < 4) {
                 setState(() {
                   _currentStep++;
                 });
+                // Scroll to top
+                _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                );
               } else {
                 // Submit form
                 _handleSubmit();
@@ -518,15 +614,19 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     // New implementation: validate, build request, call API and show feedback
     if (_isSubmitting) return;
 
+    // Validate emirates (compulsory)
+    if (_selectedEmirate == null || _selectedEmirate!.isEmpty) {
+      AppSnackBar.showError(context, 'Please select an emirate');
+      return;
+    }
+
     // Basic validations
     final firstNameErr = PainterService.validateName(
       _firstNameController.text,
       'First name',
     );
     if (firstNameErr != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(firstNameErr)));
+      AppSnackBar.showError(context, firstNameErr);
       return;
     }
 
@@ -535,9 +635,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
       'Last name',
     );
     if (lastNameErr != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(lastNameErr)));
+      AppSnackBar.showError(context, lastNameErr);
       return;
     }
 
@@ -545,17 +643,13 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
       _mobileController.text,
     );
     if (mobileErr != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(mobileErr)));
+      AppSnackBar.showError(context, mobileErr);
       return;
     }
 
     // Check if there's a real-time validation error
     if (_mobileValidationError != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_mobileValidationError!)));
+      AppSnackBar.showError(context, _mobileValidationError!);
       return;
     }
 
@@ -563,9 +657,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
       _emiratesIdController.text,
     );
     if (emiratesErr != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(emiratesErr)));
+      AppSnackBar.showError(context, emiratesErr);
       return;
     }
 
@@ -577,21 +669,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     if (_isSubmitting) return;
 
     setState(() => _isSubmitting = true);
-    final messenger = ScaffoldMessenger.of(context);
-
-    // Show checking message
-    final checkingSnackBar = SnackBar(
-      content: Row(
-        children: [
-          const SizedBox(width: 4),
-          const CircularProgressIndicator(),
-          const SizedBox(width: 12),
-          const Expanded(child: Text('Checking mobile number...')),
-        ],
-      ),
-      behavior: SnackBarBehavior.floating,
+    // Show checking message using centralized AppSnackBar
+    final _loadingController = AppSnackBar.showLoading(
+      context,
+      'Checking mobile number...',
     );
-    messenger.showSnackBar(checkingSnackBar);
 
     try {
       // Check for duplicate mobile number
@@ -599,17 +681,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         _mobileController.text,
       );
 
-      messenger.hideCurrentSnackBar();
+      AppSnackBar.hide(context);
 
       if (!duplicateCheck.success) {
-        // API call failed, show error but allow to proceed
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(duplicateCheck.message),
-            backgroundColor: Colors.orange,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        // API call failed, show warning but allow to proceed
+        AppSnackBar.showWarning(context, duplicateCheck.message);
         // Continue with registration despite check failure
         _proceedWithRegistration();
         return;
@@ -617,25 +693,11 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
 
       if (duplicateCheck.exists) {
         // Mobile number already exists, prevent registration
-        messenger.showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    duplicateCheck.message.isNotEmpty
-                        ? duplicateCheck.message
-                        : 'This mobile number is already registered. Please use a different number.',
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 4),
-          ),
+        AppSnackBar.showError(
+          context,
+          duplicateCheck.message.isNotEmpty
+              ? duplicateCheck.message
+              : 'This mobile number is already registered. Please use a different number.',
         );
         setState(() => _isSubmitting = false);
         return;
@@ -644,13 +706,10 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
       // Mobile number is available, proceed with registration
       _proceedWithRegistration();
     } catch (e) {
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Error checking mobile number: ${e.toString()}'),
-          backgroundColor: Colors.orange,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppSnackBar.hide(context);
+      AppSnackBar.showWarning(
+        context,
+        'Error checking mobile number: ${e.toString()}',
       );
       // Continue with registration despite check failure
       _proceedWithRegistration();
@@ -660,40 +719,52 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
   void _proceedWithRegistration() async {
     final messenger = ScaffoldMessenger.of(context);
 
-    // Build the registration request from form fields
+    // Calculate total points for new painter registration (100 points)
+    final totalPoints = _calculateTotalPoints();
+
+    // Get current logged-in user's ID for loginId field
+    final currentUser = AuthManager.currentUser;
+    final loginId = currentUser?.userID ?? currentUser?.emplName ?? 'SYSTEM';
+
+    // Build the registration request from form fields (backend contract)
     final req = PainterRegistrationRequest(
+      loginId: loginId,
       firstName: _firstNameController.text.trim(),
       middleName: _middleNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
-      mobileNumber: PainterService.formatMobileNumber(_mobileController.text),
+      emirateCode: _selectedEmirateCode,
+      emirates: _selectedEmirate,
+      areaCode: _selectedAreaCode,
+      areaName: _selectedAreaName,
+      subAreaCode: _selectedSubAreaCode,
+      subAreaName: _selectedSubAreaName,
+      poBox: _poBoxController.text.trim(),
       address: _addressController.text.trim(),
-      area: '',
-      emirates: _selectedEmirate ?? '',
-      password:
-          '', // Password not collected here; backend should handle or send temporary value
+      mobileNumber: PainterService.formatMobileNumber(_mobileController.text),
+      dateOfBirth: _dobController.text.trim(),
+      bankName: _bankNameController.text.trim(),
+      branchName: _branchNameController.text.trim(),
+      accountHolderName: _accountHolderController.text.trim(),
+      reference: null,
+      ibanNumber: PainterService.formatIban(_ibanController.text),
       emiratesIdNumber: _emiratesIdController.text.trim(),
       idName: _nameOfHolderController.text.trim(),
-      dateOfBirth: _dobController.text.trim(),
       nationality: _nationalityController.text.trim(),
       companyDetails: _companyDetailsController.text.trim(),
       issueDate: _issueDateController.text.trim(),
       expiryDate: _expiryDateController.text.trim(),
       occupation: _occupationController.text.trim(),
-      accountHolderName: _accountHolderController.text.trim(),
-      ibanNumber: PainterService.formatIban(_ibanController.text),
-      bankName: _bankNameController.text.trim(),
-      branchName: _branchNameController.text.trim(),
       bankAddress: _bankAddressController.text.trim(),
     );
 
-    // Show registration progress
+    // Show image upload progress
     final loading = SnackBar(
       content: Row(
         children: [
           const SizedBox(width: 4),
           const CircularProgressIndicator(),
           const SizedBox(width: 12),
-          const Expanded(child: Text('Registering painter...')),
+          const Expanded(child: Text('Uploading images...')),
         ],
       ),
       behavior: SnackBarBehavior.floating,
@@ -701,6 +772,32 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     messenger.showSnackBar(loading);
 
     try {
+      // 1. Upload files first
+      final uploadSuccess = await _uploadFilesToServer();
+
+      if (!uploadSuccess && mounted) {
+        messenger.hideCurrentSnackBar();
+        setState(() => _isSubmitting = false);
+        return; // Stop registration if file upload failed
+      }
+
+      // Show registration progress
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(width: 4),
+              CircularProgressIndicator(),
+              SizedBox(width: 12),
+              Expanded(child: Text('Registering painter...')),
+            ],
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      // 2. Register painter in DB
       final resp = await PainterService.registerPainter(req);
       messenger.hideCurrentSnackBar();
 
@@ -725,44 +822,54 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
           ),
         );
 
-        // Upload files to server after successful registration
-        await _uploadFilesToServer();
+        // Removed: Upload files to server after successful registration
+        // (This is now done before registration)
 
-        // Save autologin data for future automatic login
         final registeredName =
             ('${_firstNameController.text} ${_lastNameController.text}').trim();
-        final userId = _mobileController.text.trim(); // Using mobile as userId
 
-        await AutoLoginService.saveAutoLoginAfterRegistration(
-          userId: userId,
-          userType: 'painter',
-          userName: registeredName,
-          emirates: _selectedEmirate ?? '',
-          influencerCode: resp.influencerCode,
-          additionalData: {
-            'mobileNumber': PainterService.formatMobileNumber(
-              _mobileController.text,
-            ),
-            'emiratesId': _emiratesIdController.text.trim(),
-            'nationality': _nationalityController.text.trim(),
-            'occupation': _occupationController.text.trim(),
-          },
-        );
+        // For employee registration, show dialog instead of navigating
+        if (widget.isEmployeeRegistration) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            _showRegistrationCompletedDialog(registeredName);
+          }
+        } else {
+          // Save autologin data for future automatic login (only for self-registration)
+          final userId = _mobileController.text
+              .trim(); // Using mobile as userId
 
-        // Navigate to painter home after short delay so user sees the success snackbar
-        await Future.delayed(const Duration(seconds: 1));
-        if (mounted) {
-          // Pass isNewRegistration so home screen can show congratulations dialog
-          context.go(
-            RouteNames.painterHome,
-            extra: {
-              'isNewRegistration': true,
-              'userRole': 'painter',
-              'registeredName': registeredName,
-              'emirates': _selectedEmirate ?? '',
-              'influencerCode': resp.influencerCode,
+          await AutoLoginService.saveAutoLoginAfterRegistration(
+            userId: userId,
+            userType: 'painter',
+            userName: registeredName,
+            emirates: _selectedEmirate ?? '',
+            influencerCode: resp.influencerCode,
+            additionalData: {
+              'mobileNumber': PainterService.formatMobileNumber(
+                _mobileController.text,
+              ),
+              'emiratesId': _emiratesIdController.text.trim(),
+              'nationality': _nationalityController.text.trim(),
+              'occupation': _occupationController.text.trim(),
             },
           );
+
+          // Navigate to painter home after short delay so user sees the success snackbar
+          await Future.delayed(const Duration(seconds: 1));
+          if (mounted) {
+            // Pass isNewRegistration so home screen can show congratulations dialog
+            context.go(
+              RouteNames.painterHome,
+              extra: {
+                'isNewRegistration': true,
+                'userRole': 'painter',
+                'registeredName': registeredName,
+                'emirates': _selectedEmirate ?? '',
+                'influencerCode': resp.influencerCode,
+              },
+            );
+          }
         }
       } else {
         messenger.showSnackBar(
@@ -787,6 +894,95 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
+  }
+
+  void _showRegistrationCompletedDialog(String painterName) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20.r),
+          ),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            padding: EdgeInsets.all(24.w),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20.r),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFF8FAFC), Colors.white],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(16.w),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.check_circle_rounded,
+                    color: const Color(0xFF10B981),
+                    size: 64.sp,
+                  ),
+                ),
+                SizedBox(height: 20.h),
+                Text(
+                  'Registration Completed!',
+                  style: TextStyle(
+                    fontSize: 22.sp,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1F2937),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 12.h),
+                Text(
+                  'Painter "$painterName" has been successfully registered.',
+                  style: TextStyle(
+                    fontSize: 15.sp,
+                    color: Colors.grey[600],
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 24.h),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop(); // Close dialog
+                      context.pop(); // Go back to home screen
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E3A8A),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: EdgeInsets.symmetric(vertical: 14.h),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12.r),
+                      ),
+                    ),
+                    child: Text(
+                      'Done',
+                      style: TextStyle(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   // ========= OTP Helper Methods =========
@@ -881,6 +1077,29 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     return left > 0 ? left : 0;
   }
 
+  Future<void> _checkKycStatus() async {
+    if (_isCheckingKycStatus) return;
+
+    setState(() => _isCheckingKycStatus = true);
+
+    try {
+      final status = await KycStatusService.getKycStatusByMobile(
+        _mobileController.text.trim(),
+      );
+
+      if (mounted) {
+        setState(() {
+          _kycStatus = status;
+          _isCheckingKycStatus = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCheckingKycStatus = false);
+      }
+    }
+  }
+
   void _onMobileNumberChanged() {
     final mobile = _mobileController.text;
 
@@ -897,6 +1116,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         _isOtpVerified = false;
         _showOtpField = false;
         _otpController.clear();
+        _kycStatus = null; // Clear KYC status when mobile changes
       });
     }
 
@@ -915,6 +1135,27 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
 
   Timer? _debounceTimer;
 
+  /// Calculate total points for new painter registration
+  /// All new painters receive 100 points upon successful registration
+  int _calculateTotalPoints() {
+    return 100;
+  }
+
+  Future<void> _loadEmirates() async {
+    try {
+      final items = await PainterService.getEmiratesList();
+      setState(() {
+        _emiratesList = items;
+      });
+    } catch (e) {
+      // Non-fatal - show warning
+      AppSnackBar.showWarning(
+        context,
+        'Failed to load emirates: ${e.toString()}',
+      );
+    }
+  }
+
   Future<void> _sendOtp() async {
     if (_isSendingOtp) return;
 
@@ -927,12 +1168,21 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
       return;
     }
 
+    // Check if this is the bypass number
+    final cleanedMobile = mobileRaw.replaceAll(RegExp(r'\D'), '');
+    final isBypassNumber =
+        cleanedMobile == _bypassMobile ||
+        cleanedMobile == '971$_bypassMobile' ||
+        cleanedMobile.endsWith(_bypassMobile);
+
     // Check cooldown
     final leftMs = await _getResendCooldownLeft();
     if (leftMs != null && leftMs > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Please wait ${(leftMs / 1000).ceil()} seconds before resending'),
+          content: Text(
+            'Please wait ${(leftMs / 1000).ceil()} seconds before resending',
+          ),
           backgroundColor: Colors.orange,
         ),
       );
@@ -942,6 +1192,27 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     setState(() => _isSendingOtp = true);
 
     try {
+      // If bypass number, skip SMS and use fixed OTP
+      if (isBypassNumber) {
+        debugPrint('🔓 Bypass number detected (Painter): $mobileRaw');
+        await _saveOtpLocally(
+          mobile: _normalizeForPrefs(mobileRaw),
+          otp: _bypassOtp,
+        );
+        await _setResendCooldown();
+        setState(() {
+          _showOtpField = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('OTP: $_bypassOtp (Bypass mode)'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        setState(() => _isSendingOtp = false);
+        return;
+      }
+
       final otp = _genOtp6();
       final formats = _getAllMobileFormats(mobileRaw);
       bool sent = false;
@@ -958,7 +1229,10 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
 
         if (result.success) {
           sent = true;
-          await _saveOtpLocally(mobile: _normalizeForPrefs(mobileRaw), otp: otp);
+          await _saveOtpLocally(
+            mobile: _normalizeForPrefs(mobileRaw),
+            otp: otp,
+          );
           await _setResendCooldown();
           setState(() {
             _showOtpField = true;
@@ -1061,6 +1335,9 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         backgroundColor: Colors.green,
       ),
     );
+
+    // Check KYC status after successful OTP verification
+    _checkKycStatus();
   }
 
   void _checkMobileDuplicateRealTime(String mobile) async {
@@ -1112,14 +1389,16 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         TextFormField(
           controller: _mobileController,
           keyboardType: TextInputType.phone,
+          inputFormatters: UaePhoneUtils.inputFormatters(),
           decoration: InputDecoration(
-            hintText: 'Mobile Number',
+            hintText: UaePhoneUtils.localHint,
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
             prefixIcon: Icon(
               Icons.phone_outlined,
               color: Colors.grey[600],
               size: 20,
             ),
+            prefixText: UaePhoneUtils.countryPrefix,
             suffixIcon: _isCheckingMobile
                 ? Padding(
                     padding: const EdgeInsets.all(12.0),
@@ -1238,21 +1517,124 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         ModernDropdown(
           label: 'Emirates',
           icon: Icons.public_outlined,
-          items: const [
-            'Dubai',
-            'Abu Dhabi',
-            'Sharjah',
-            'Ajman',
-            'Umm Al Quwain',
-            'Ras Al Khaimah',
-            'Fujairah',
-          ],
+          items: _emiratesList.map((e) => e.name).toList(),
           value: _selectedEmirate,
-          onChanged: (String? value) {
+          isRequired: true,
+          onChanged: (String? value) async {
             setState(() {
               _selectedEmirate = value;
+              _selectedEmirateCode = _emiratesList
+                  .firstWhere(
+                    (e) => e.name == value,
+                    orElse: () => EmirateItem(id: '', name: ''),
+                  )
+                  .id;
+
+              // clear area/subarea selections
+              _areasList = [];
+              _subAreasList = [];
+              _selectedAreaCode = null;
+              _selectedAreaName = null;
+              _selectedSubAreaCode = null;
+              _selectedSubAreaName = null;
+              _hasSubArea = false;
+              _poBoxController.text = '';
             });
+
+            if (_selectedEmirateCode != null &&
+                _selectedEmirateCode!.isNotEmpty) {
+              try {
+                final areas = await PainterService.getAreasListByEmirate(
+                  _selectedEmirateCode!,
+                );
+                setState(() {
+                  _areasList = areas;
+                });
+              } catch (e) {
+                AppSnackBar.showWarning(
+                  context,
+                  'Failed loading areas: ${e.toString()}',
+                );
+              }
+            }
           },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        // Area dropdown
+        ModernDropdown(
+          label: 'Area',
+          icon: Icons.location_city_outlined,
+          items: _areasList.map((a) => a.name).toList(),
+          value: _selectedAreaName,
+          isRequired: true,
+          onChanged: (String? value) async {
+            setState(() {
+              _selectedAreaName = value;
+              final found = _areasList.firstWhere(
+                (a) => a.name == value,
+                orElse: () => AreaItem(code: '', name: '', poBox: ''),
+              );
+              _selectedAreaCode = found.code;
+              _selectedSubAreaCode = null;
+              _selectedSubAreaName = null;
+              _subAreasList = [];
+              _hasSubArea = false;
+              _poBoxController.text = '';
+            });
+
+            if (_selectedAreaCode != null && _selectedAreaCode!.isNotEmpty) {
+              try {
+                final res = await PainterService.getSubAreasListByArea(
+                  _selectedAreaCode!,
+                );
+                setState(() {
+                  _hasSubArea = res['hasSubArea'] == true;
+                  _subAreasList = (res['data'] as List<SubAreaItem>?) ?? [];
+                  if (!_hasSubArea) {
+                    // auto-fill poBox from area
+                    final area = _areasList.firstWhere(
+                      (a) => a.code == _selectedAreaCode,
+                      orElse: () => AreaItem(code: '', name: '', poBox: ''),
+                    );
+                    _poBoxController.text = area.poBox;
+                  }
+                });
+              } catch (e) {
+                AppSnackBar.showWarning(
+                  context,
+                  'Failed loading sub-areas: ${e.toString()}',
+                );
+              }
+            }
+          },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        if (_hasSubArea) ...[
+          ModernDropdown(
+            label: 'Sub-area',
+            icon: Icons.place_outlined,
+            items: _subAreasList.map((s) => s.name).toList(),
+            value: _selectedSubAreaName,
+            isRequired: true,
+            onChanged: (String? value) {
+              setState(() {
+                _selectedSubAreaName = value;
+                final found = _subAreasList.firstWhere(
+                  (s) => s.name == value,
+                  orElse: () => SubAreaItem(code: '', name: '', poBox: ''),
+                );
+                _selectedSubAreaCode = found.code;
+                _poBoxController.text = found.poBox;
+              });
+            },
+          ),
+          const ResponsiveSpacing(mobile: 12),
+        ],
+        ResponsiveTextField(
+          label: 'Place Code (PoBox)',
+          icon: Icons.local_post_office_outlined,
+          controller: _poBoxController,
+          isRequired: true,
         ),
         const ResponsiveSpacing(mobile: 20),
         _buildPhotoUploadSection(),
@@ -1515,7 +1897,9 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
             onFileSelected: (file) async {
               // Store selected file path for later verification
               if (file != null) {
-                print('Emirates ID ${isFront ? 'Front' : 'Back'} selected: $file');
+                print(
+                  'Emirates ID ${isFront ? 'Front' : 'Back'} selected: $file',
+                );
                 setState(() {
                   if (isFront) {
                     _emiratesIdFrontFile = file;
@@ -1939,15 +2323,15 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
         ),
         filled: true,
         fillColor: Colors.grey.shade50,
+        prefixText: isPhone ? UaePhoneUtils.countryPrefix : null,
+        hintText: isPhone ? UaePhoneUtils.localHint : null,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 16,
         ),
       ),
       keyboardType: isPhone ? TextInputType.phone : TextInputType.text,
-      inputFormatters: isPhone
-          ? [FilteringTextInputFormatter.digitsOnly]
-          : null,
+      inputFormatters: isPhone ? UaePhoneUtils.inputFormatters() : null,
     );
   }
 
@@ -2107,7 +2491,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     );
   }
 
-  // OCR processing with retry mechanism for Emirates ID
+  // OCR processing for Emirates ID using Gemini first, ML Kit as fallback
   Future<void> _processEmiratesIdOcrWithRetry() async {
     if (_emiratesIdFrontFile == null || _emiratesIdBackFile == null) return;
 
@@ -2116,25 +2500,31 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     });
 
     try {
-      await _ocrService.processEmiratesIdOcrWithRetry(
+      debugPrint(
+        '[PainterRegistration] Using Hybrid OCR for Emirates ID (Gemini with ML Kit fallback)',
+      );
+
+      final result = await _hybridOcrService.extractEmiratesIdFields(
         frontImagePath: _emiratesIdFrontFile!,
         backImagePath: _emiratesIdBackFile!,
-        onFieldsExtracted: (result) {
-          _updateFieldsFromResult(result);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Emirates ID fields autofilled')),
-            );
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(error)));
-          }
-        },
       );
+
+      _updateFieldsFromResult(result);
+
+      if (mounted) {
+        AppSnackBar.showSuccess(
+          context,
+          'Emirates ID fields autofilled with AI',
+        );
+      }
+    } catch (e) {
+      debugPrint('Error in Emirates ID OCR: $e');
+      if (mounted) {
+        AppSnackBar.showError(
+          context,
+          'Error processing Emirates ID: ${e.toString()}',
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -2144,7 +2534,7 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     }
   }
 
-  // OCR processing for bank document with retry mechanism
+  // OCR processing for bank document using Hybrid service (Gemini with ML Kit fallback)
   Future<void> _processBankDocumentOcr() async {
     if (_bankDocumentFile == null) return;
 
@@ -2153,24 +2543,27 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     });
 
     try {
-      await _bankOcrService.processBankDetailsOcrWithRetry(
-        bankDocumentPath: _bankDocumentFile!,
-        onFieldsExtracted: (result) {
-          _updateBankFieldsFromResult(result);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Bank details autofilled')),
-            );
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(error)));
-          }
-        },
+      debugPrint(
+        '[PainterRegistration] Using Hybrid OCR for Bank Details (Gemini with ML Kit fallback)',
       );
+
+      final result = await _hybridOcrService.extractBankDetailsFields(
+        bankDocumentPath: _bankDocumentFile!,
+      );
+
+      _updateBankFieldsFromResult(result);
+
+      if (mounted) {
+        AppSnackBar.showSuccess(context, 'Bank details autofilled with AI');
+      }
+    } catch (e) {
+      debugPrint('Error in Bank Details OCR: $e');
+      if (mounted) {
+        AppSnackBar.showError(
+          context,
+          'Error processing bank document: ${e.toString()}',
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -2261,106 +2654,104 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
     }
   }
 
-  /// Upload all selected files to server after successful registration
-  Future<void> _uploadFilesToServer() async {
-    print('=== Starting file upload to server ===');
-    
-    final personName = _getFullName();
-    final mobileNumber = _getMobileNumber();
-    
-    print('Person Name: $personName');
-    print('Mobile Number: $mobileNumber');
+  /// Upload all selected files to server before registration
+  /// Returns [true] if all files uploaded successfully, [false] if any failed or none selected
+  Future<bool> _uploadFilesToServer() async {
+    print('=== Starting painter file upload to server ===');
 
-    if (personName.isEmpty || mobileNumber.isEmpty) {
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final mobile = _mobileController.text.trim();
+
+    print('Name: $firstName $lastName');
+    print('Mobile: $mobile');
+
+    if (firstName.isEmpty || lastName.isEmpty || mobile.isEmpty) {
       print('Skipping upload - name or mobile is empty');
-      return; // Skip upload if name or mobile is empty
+      return true; // Return true as there's technically no failure, but this shouldn't happen
     }
 
-    final filesToUpload = <String, String?>{
-      'Profile Photo': _profilePhotoPath,
-      'Emirates ID Front': _emiratesIdFrontFile,
-      'Emirates ID Back': _emiratesIdBackFile,
-      'Bank Document': _bankDocumentFile,
+    // Map file paths to document types
+    final filePathsByType = <String, String>{
+      if (_profilePhotoPath != null && _profilePhotoPath!.isNotEmpty)
+        DocumentType.profilePhoto: _profilePhotoPath!,
+      if (_emiratesIdFrontFile != null && _emiratesIdFrontFile!.isNotEmpty)
+        DocumentType.emiratesIdFront: _emiratesIdFrontFile!,
+      if (_emiratesIdBackFile != null && _emiratesIdBackFile!.isNotEmpty)
+        DocumentType.emiratesIdBack: _emiratesIdBackFile!,
+      if (_bankDocumentFile != null && _bankDocumentFile!.isNotEmpty)
+        DocumentType.bankDocument: _bankDocumentFile!,
     };
 
-    print('Files to upload: $filesToUpload');
-
-    for (final entry in filesToUpload.entries) {
-      final fileName = entry.key;
-      final filePath = entry.value;
-
-      print('Processing $fileName: $filePath');
-
-      if (filePath != null && filePath.isNotEmpty) {
-        try {
-          final file = File(filePath);
-          final fileExists = await file.exists();
-          print('File exists: $fileExists');
-          
-          if (fileExists) {
-            print('Uploading $fileName to server...');
-            final response = await ImageUploadService.uploadImage(
-              file: file,
-              personName: personName,
-              mobileNumber: mobileNumber,
-            );
-
-            print('$fileName uploaded successfully with key: ${response.data.attFilKy}');
-            
-            // Show success message to user
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('$fileName uploaded successfully!'),
-                  backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-          } else {
-            print('File does not exist: $filePath');
-          }
-        } catch (e) {
-          print('Failed to upload $fileName: $e');
-          
-          // Show error message to user
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Failed to upload $fileName: $e'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-          // Continue with other files even if one fails
-        }
-      } else {
-        print('$fileName: No file selected');
-      }
+    if (filePathsByType.isEmpty) {
+      print('No files to upload');
+      return true; // No files to upload is fine
     }
-    
-    print('=== File upload process completed ===');
-  }
 
-  /// Helper method to get full name from form fields
-  String _getFullName() {
-    final firstName = _firstNameController.text.trim();
-    final middleName = _middleNameController.text.trim();
-    final lastName = _lastNameController.text.trim();
+    print('Files to upload: ${filePathsByType.keys.toList()}');
 
-    final nameParts = [
-      firstName,
-      middleName,
-      lastName,
-    ].where((part) => part.isNotEmpty).toList();
+    // Get current user ID for createId
+    final currentUser = AuthManager.currentUser;
+    final createId = currentUser?.userID ?? currentUser?.emplName ?? 'SYSTEM';
 
-    return nameParts.join(' ');
-  }
+    // Upload all files in batch
+    final results = await ImageUploadService.uploadMultipleImages(
+      filePathsByType: filePathsByType,
+      firstName: firstName,
+      lastName: lastName,
+      mobile: mobile,
+      createId: createId,
+    );
 
-  /// Helper method to get mobile number from form field
-  String _getMobileNumber() {
-    return _mobileController.text.trim();
+    // Show results
+    int successCount = 0;
+    int failCount = 0;
+    String firstError = '';
+
+    results.forEach((docType, response) {
+      if (response.success) {
+        successCount++;
+        print('✅ $docType uploaded: ${response.attFilKy}');
+      } else {
+        failCount++;
+        if (firstError.isEmpty) {
+          firstError = response.message;
+        }
+        print('❌ $docType failed: ${response.message}');
+      }
+    });
+
+    // Handle failure
+    if (failCount > 0 && mounted) {
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Upload Failed'),
+            ],
+          ),
+          content: Text(
+            'Failed to upload $failCount document(s).\n\nDetails: $firstError\n\nPlease check your internet connection and try again.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      print(
+        '=== File upload completed with errors: $successCount success, $failCount failed ===',
+      );
+      return false; // Indicating upload failure to prevent DB registration
+    }
+
+    print('=== File upload completed successfully: $successCount success ===');
+    return true; // Success
   }
 
   /// Build mobile verification section (Step 1)
@@ -2397,10 +2788,10 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                       ),
                     )
                   : _mobileValidationError != null
-                      ? const Icon(Icons.error_outline, color: Colors.red)
-                      : _isOtpVerified
-                          ? const Icon(Icons.check_circle, color: Colors.green)
-                          : null,
+                  ? const Icon(Icons.error_outline, color: Colors.red)
+                  : _isOtpVerified
+                  ? const Icon(Icons.check_circle, color: Colors.green)
+                  : null,
             ),
           ],
         ),
@@ -2507,8 +2898,8 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
                       : const Icon(Icons.verified_outlined),
                   label: Text(_isOtpVerified ? 'Verified' : 'Verify OTP'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _isOtpVerified 
-                        ? Colors.green 
+                    backgroundColor: _isOtpVerified
+                        ? Colors.green
                         : const Color(0xFF1E3A8A),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -2546,6 +2937,40 @@ class _PainterRegistrationScreenState extends State<PainterRegistrationScreen>
               ],
             ),
           ),
+        ],
+        if (_isCheckingKycStatus) ...[
+          const ResponsiveSpacing(mobile: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Checking registration status...',
+                    style: TextStyle(
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (_kycStatus != null && _kycStatus!.success) ...[
+          const ResponsiveSpacing(mobile: 20),
+          KycStatusWidget(status: _kycStatus!, onRefresh: _checkKycStatus),
         ],
       ],
     );

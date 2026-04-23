@@ -3,6 +3,7 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/models/admin_user_models.dart';
 import 'package:rak_app/core/services/admin_user_service.dart';
+import 'package:rak_app/core/utils/uae_phone_utils.dart';
 import 'package:rak_app/shared/widgets/user_search_widget.dart';
 
 /// Admin User Edit Screen for managing user details by registration ID
@@ -16,10 +17,10 @@ class AdminUserEditScreen extends StatefulWidget {
 class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _searchController = TextEditingController();
-  
+
   // Form controllers for all fields
   final Map<String, TextEditingController> _controllers = {};
-  
+
   AdminUserData? _currentUser;
   bool _isLoading = false;
   bool _isUpdating = false;
@@ -35,19 +36,52 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
   void _initializeControllers() {
     // Initialize all possible field controllers
     final fields = [
-      'firstName', 'middleName', 'lastName', 'contName',
-      'address1', 'address2', 'address3', 'city', 'district', 'pincode',
-      'emirates', 'email', 'mobileNumber',
-      'accountHolderName', 'ibanNumber', 'bankName', 'branchName', 
-      'bankAddress', 'bankAccountNo', 'bankIFSC',
-      'firmName', 'vatAddress', 'taxRegistrationNumber', 'vatEffectiveDate',
-      'licenseNumber', 'issuingAuthority', 'licenseType', 'establishmentDate',
-      'licenseExpiryDate', 'tradeName', 'responsiblePerson', 'licenseAddress',
-      'effectiveDate', 'emiratesIdNumber', 'idName', 'nationality', 'employer',
-      'issueDate', 'expiryDate', 'occupation',
-      'areaCode', 'inflType', 'reference', 'contractorType'
+      'firstName',
+      'middleName',
+      'lastName',
+      'contName',
+      'address1',
+      'address2',
+      'address3',
+      'city',
+      'district',
+      'pincode',
+      'emirates',
+      'email',
+      'mobileNumber',
+      'accountHolderName',
+      'ibanNumber',
+      'bankName',
+      'branchName',
+      'bankAddress',
+      'bankAccountNo',
+      'bankIFSC',
+      'firmName',
+      'vatAddress',
+      'taxRegistrationNumber',
+      'vatEffectiveDate',
+      'licenseNumber',
+      'issuingAuthority',
+      'licenseType',
+      'establishmentDate',
+      'licenseExpiryDate',
+      'tradeName',
+      'responsiblePerson',
+      'licenseAddress',
+      'effectiveDate',
+      'emiratesIdNumber',
+      'idName',
+      'nationality',
+      'employer',
+      'issueDate',
+      'expiryDate',
+      'occupation',
+      'areaCode',
+      'inflType',
+      'reference',
+      'contractorType',
     ];
-    
+
     for (final field in fields) {
       _controllers[field] = TextEditingController();
     }
@@ -64,7 +98,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
 
   Future<void> _searchUser([String? inflCode]) async {
     final searchCode = inflCode ?? _searchController.text.trim();
-    
+
     if (!AdminUserService.isValidInflCode(searchCode)) {
       setState(() {
         _errorMessage = 'Please enter a valid registration ID';
@@ -82,7 +116,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
 
     try {
       final response = await AdminUserService.getUserByInflCode(searchCode);
-      
+
       if (response.success && response.data != null) {
         setState(() {
           _currentUser = response.data;
@@ -113,22 +147,25 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
 
   void _populateForm() {
     if (_currentUser == null) return;
-    
+
     final user = _currentUser!;
-    
+
     // Helper function to clean values
     String cleanValue(String? value) {
-      if (value == null || value.trim().isEmpty || value == '{}' || value == 'null') {
+      if (value == null ||
+          value.trim().isEmpty ||
+          value == '{}' ||
+          value == 'null') {
         return '';
       }
       return value.trim();
     }
-    
+
     _controllers['firstName']?.text = cleanValue(user.firstName);
     _controllers['middleName']?.text = cleanValue(user.middleName);
     _controllers['lastName']?.text = cleanValue(user.lastName);
     _controllers['contName']?.text = cleanValue(user.contName);
-    
+
     _controllers['address1']?.text = cleanValue(user.address1);
     _controllers['address2']?.text = cleanValue(user.address2);
     _controllers['address3']?.text = cleanValue(user.address3);
@@ -138,30 +175,40 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
     _controllers['emirates']?.text = cleanValue(user.emirates);
     _controllers['email']?.text = cleanValue(user.email);
     _controllers['mobileNumber']?.text = cleanValue(user.mobileNumber);
-    
-    _controllers['accountHolderName']?.text = cleanValue(user.accountHolderName);
+
+    _controllers['accountHolderName']?.text = cleanValue(
+      user.accountHolderName,
+    );
     _controllers['ibanNumber']?.text = cleanValue(user.ibanNumber);
     _controllers['bankName']?.text = cleanValue(user.bankName);
     _controllers['branchName']?.text = cleanValue(user.branchName);
     _controllers['bankAddress']?.text = cleanValue(user.bankAddress);
     _controllers['bankAccountNo']?.text = cleanValue(user.bankAccountNo);
     _controllers['bankIFSC']?.text = cleanValue(user.bankIFSC);
-    
+
     _controllers['firmName']?.text = cleanValue(user.firmName);
     _controllers['vatAddress']?.text = cleanValue(user.vatAddress);
-    _controllers['taxRegistrationNumber']?.text = cleanValue(user.taxRegistrationNumber);
+    _controllers['taxRegistrationNumber']?.text = cleanValue(
+      user.taxRegistrationNumber,
+    );
     _controllers['vatEffectiveDate']?.text = cleanValue(user.vatEffectiveDate);
-    
+
     _controllers['licenseNumber']?.text = cleanValue(user.licenseNumber);
     _controllers['issuingAuthority']?.text = cleanValue(user.issuingAuthority);
     _controllers['licenseType']?.text = cleanValue(user.licenseType);
-    _controllers['establishmentDate']?.text = cleanValue(user.establishmentDate);
-    _controllers['licenseExpiryDate']?.text = cleanValue(user.licenseExpiryDate);
+    _controllers['establishmentDate']?.text = cleanValue(
+      user.establishmentDate,
+    );
+    _controllers['licenseExpiryDate']?.text = cleanValue(
+      user.licenseExpiryDate,
+    );
     _controllers['tradeName']?.text = cleanValue(user.tradeName);
-    _controllers['responsiblePerson']?.text = cleanValue(user.responsiblePerson);
+    _controllers['responsiblePerson']?.text = cleanValue(
+      user.responsiblePerson,
+    );
     _controllers['licenseAddress']?.text = cleanValue(user.licenseAddress);
     _controllers['effectiveDate']?.text = cleanValue(user.effectiveDate);
-    
+
     _controllers['emiratesIdNumber']?.text = cleanValue(user.emiratesIdNumber);
     _controllers['idName']?.text = cleanValue(user.idHolder ?? user.idName);
     _controllers['nationality']?.text = cleanValue(user.nationality);
@@ -169,7 +216,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
     _controllers['issueDate']?.text = cleanValue(user.issueDate);
     _controllers['expiryDate']?.text = cleanValue(user.expiryDate);
     _controllers['occupation']?.text = cleanValue(user.occupation);
-    
+
     _controllers['areaCode']?.text = cleanValue(user.areaCode);
     _controllers['inflType']?.text = cleanValue(user.inflType);
     _controllers['reference']?.text = cleanValue(user.reference);
@@ -238,7 +285,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
     );
 
     final updateData = updatedUser.toUpdateJson();
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -252,13 +299,13 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               const SizedBox(height: 16),
               Text('Fields to update (${updateData.length}):'),
               const SizedBox(height: 8),
-              ...updateData.entries.map((entry) => 
-                Padding(
+              ...updateData.entries.map(
+                (entry) => Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text('${entry.key}: ${entry.value}'),
                 ),
               ),
-              if (updateData.isEmpty) 
+              if (updateData.isEmpty)
                 const Text('No fields to update (all empty or unchanged)'),
             ],
           ),
@@ -285,7 +332,10 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
       // Helper function to get non-empty value or null
       String? getValueOrNull(String key) {
         final value = _controllers[key]?.text.trim();
-        if (value == null || value.isEmpty || value == '{}' || value == 'null') {
+        if (value == null ||
+            value.isEmpty ||
+            value == '{}' ||
+            value == 'null') {
           return null;
         }
         return value;
@@ -340,7 +390,9 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
         contractorType: getValueOrNull('contractorType'),
       );
 
-      print('DEBUG: Update data being sent: ${updatedUser.toUpdateJson()}'); // Debug log
+      print(
+        'DEBUG: Update data being sent: ${updatedUser.toUpdateJson()}',
+      ); // Debug log
 
       final response = await AdminUserService.updateUserByInflCode(
         _currentUser!.inflCode!,
@@ -356,7 +408,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               duration: const Duration(seconds: 3),
             ),
           );
-          
+
           // Refresh user data to show updated values
           await _searchUser();
         }
@@ -364,7 +416,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
         setState(() {
           _errorMessage = response.message ?? 'Failed to update user';
         });
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -416,64 +468,60 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
         appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text(
-          'Admin User Management',
-          style: TextStyle(
-            color: Color(0xFF1E3A8A),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF1E3A8A)),
-          onPressed: () => context.pop(),
-        ),
-      ),
-      body: Column(
-        children: [
-          // Search Section
-          Container(
-            padding: EdgeInsets.all(16.w),
-            color: Colors.white,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Search User by Name',
-                  style: TextStyle(
-                    fontSize: 16.sp,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1F2937),
-                  ),
-                ),
-                SizedBox(height: 12.h),
-                UserSearchWidget(
-                  controller: _searchController,
-                  onUserSelected: _onUserSelected,
-                  hintText: 'Search by Name (First, Middle, Last, or ID Holder)',
-                  includeInactive: false,
-                  isLoading: _isLoading,
-                ),
-                SizedBox(height: 8.h),
-                Text(
-                  'Search by any name field, contact name, or Registration ID',
-                  style: TextStyle(
-                    fontSize: 12.sp,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
+          backgroundColor: Colors.white,
+          elevation: 0,
+          title: const Text(
+            'Admin User Management',
+            style: TextStyle(
+              color: Color(0xFF1E3A8A),
+              fontWeight: FontWeight.bold,
             ),
           ),
-          
-          // Content Section
-          Expanded(
-            child: _buildContent(),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Color(0xFF1E3A8A)),
+            onPressed: () => context.pop(),
           ),
-        ],
+        ),
+        body: Column(
+          children: [
+            // Search Section
+            Container(
+              padding: EdgeInsets.all(16.w),
+              color: Colors.white,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Search User by Name',
+                    style: TextStyle(
+                      fontSize: 16.sp,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF1F2937),
+                    ),
+                  ),
+                  SizedBox(height: 12.h),
+                  UserSearchWidget(
+                    controller: _searchController,
+                    onUserSelected: _onUserSelected,
+                    hintText:
+                        'Search by Name (First, Middle, Last, or ID Holder)',
+                    includeInactive: false,
+                    isLoading: _isLoading,
+                  ),
+                  SizedBox(height: 8.h),
+                  Text(
+                    'Search by any name field, contact name, or Registration ID',
+                    style: TextStyle(fontSize: 12.sp, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+
+            // Content Section
+            Expanded(child: _buildContent()),
+          ],
+        ),
       ),
-    ),
     );
   }
 
@@ -481,21 +529,19 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
     if (!_hasSearched) {
       return _buildEmptyState();
     }
-    
+
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
-    
+
     if (_errorMessage != null) {
       return _buildErrorState();
     }
-    
+
     if (_currentUser == null) {
       return _buildNotFoundState();
     }
-    
+
     return _buildUserForm();
   }
 
@@ -504,18 +550,11 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.search,
-            size: 64.sp,
-            color: Colors.grey[400],
-          ),
+          Icon(Icons.search, size: 64.sp, color: Colors.grey[400]),
           SizedBox(height: 16.h),
           Text(
             'Enter a Registration ID to search for user',
-            style: TextStyle(
-              fontSize: 16.sp,
-              color: Colors.grey[600],
-            ),
+            style: TextStyle(fontSize: 16.sp, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -527,25 +566,15 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 64.sp,
-            color: Colors.red[400],
-          ),
+          Icon(Icons.error_outline, size: 64.sp, color: Colors.red[400]),
           SizedBox(height: 16.h),
           Text(
             _errorMessage!,
-            style: TextStyle(
-              fontSize: 16.sp,
-              color: Colors.red[600],
-            ),
+            style: TextStyle(fontSize: 16.sp, color: Colors.red[600]),
             textAlign: TextAlign.center,
           ),
           SizedBox(height: 16.h),
-          ElevatedButton(
-            onPressed: _searchUser,
-            child: const Text('Retry'),
-          ),
+          ElevatedButton(onPressed: _searchUser, child: const Text('Retry')),
         ],
       ),
     );
@@ -556,18 +585,11 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.person_off,
-            size: 64.sp,
-            color: Colors.grey[400],
-          ),
+          Icon(Icons.person_off, size: 64.sp, color: Colors.grey[400]),
           SizedBox(height: 16.h),
           Text(
             'No user found with this Registration ID',
-            style: TextStyle(
-              fontSize: 16.sp,
-              color: Colors.grey[600],
-            ),
+            style: TextStyle(fontSize: 16.sp, color: Colors.grey[600]),
           ),
         ],
       ),
@@ -585,7 +607,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
             // User Info Header
             _buildUserInfoHeader(),
             SizedBox(height: 24.h),
-            
+
             // Personal Information
             _buildSection('Personal Information', [
               _buildTextField('First Name', 'firstName', required: true),
@@ -593,7 +615,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               _buildTextField('Last Name', 'lastName', required: true),
               _buildTextField('Contact Name', 'contName'),
             ]),
-            
+
             // Address Information
             _buildSection('Address Information', [
               _buildTextField('Address Line 1', 'address1'),
@@ -603,10 +625,18 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               _buildTextField('District', 'district'),
               _buildTextField('Pincode', 'pincode'),
               _buildTextField('Emirates', 'emirates'),
-              _buildTextField('Email', 'email', keyboardType: TextInputType.emailAddress),
-              _buildTextField('Mobile Number', 'mobileNumber', keyboardType: TextInputType.phone),
+              _buildTextField(
+                'Email',
+                'email',
+                keyboardType: TextInputType.emailAddress,
+              ),
+              _buildTextField(
+                'Mobile Number',
+                'mobileNumber',
+                keyboardType: TextInputType.phone,
+              ),
             ]),
-            
+
             // Bank Information
             _buildSection('Bank Information', [
               _buildTextField('Account Holder Name', 'accountHolderName'),
@@ -617,15 +647,18 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               _buildTextField('Bank Account No', 'bankAccountNo'),
               _buildTextField('Bank IFSC', 'bankIFSC'),
             ]),
-            
+
             // VAT Information
             _buildSection('VAT Information', [
               _buildTextField('Firm Name', 'firmName'),
               _buildTextField('VAT Address', 'vatAddress'),
-              _buildTextField('Tax Registration Number', 'taxRegistrationNumber'),
+              _buildTextField(
+                'Tax Registration Number',
+                'taxRegistrationNumber',
+              ),
               _buildTextField('VAT Effective Date', 'vatEffectiveDate'),
             ]),
-            
+
             // License Information
             _buildSection('License Information', [
               _buildTextField('License Number', 'licenseNumber'),
@@ -638,7 +671,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               _buildTextField('License Address', 'licenseAddress'),
               _buildTextField('Effective Date', 'effectiveDate'),
             ]),
-            
+
             // ID/KYC Information
             _buildSection('ID/KYC Information', [
               _buildTextField('Emirates ID Number', 'emiratesIdNumber'),
@@ -649,7 +682,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               _buildTextField('Expiry Date', 'expiryDate'),
               _buildTextField('Occupation', 'occupation'),
             ]),
-            
+
             // Additional Information
             _buildSection('Additional Information', [
               _buildTextField('Area Code', 'areaCode'),
@@ -657,9 +690,9 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               _buildTextField('Reference', 'reference'),
               _buildTextField('Contractor Type', 'contractorType'),
             ]),
-            
+
             SizedBox(height: 32.h),
-            
+
             // Debug Button (for testing)
             SizedBox(
               width: double.infinity,
@@ -682,9 +715,9 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
                 ),
               ),
             ),
-            
+
             SizedBox(height: 16.h),
-            
+
             // Update Button
             SizedBox(
               width: double.infinity,
@@ -704,7 +737,9 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
                         height: 20.h,
                         child: const CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
                         ),
                       )
                     : Text(
@@ -716,7 +751,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
                       ),
               ),
             ),
-            
+
             SizedBox(height: 32.h),
           ],
         ),
@@ -759,8 +794,8 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _currentUser!.fullName.isNotEmpty 
-                      ? _currentUser!.fullName 
+                  _currentUser!.fullName.isNotEmpty
+                      ? _currentUser!.fullName
                       : 'No Name',
                   style: TextStyle(
                     fontSize: 18.sp,
@@ -771,16 +806,13 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
                 SizedBox(height: 4.h),
                 Text(
                   'ID: ${_currentUser!.inflCode}',
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 14.sp, color: Colors.grey[600]),
                 ),
                 SizedBox(height: 4.h),
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
                   decoration: BoxDecoration(
-                    color: _currentUser!.isPainter 
+                    color: _currentUser!.isPainter
                         ? const Color(0xFF10B981).withValues(alpha: 0.1)
                         : const Color(0xFFF59E0B).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12.r),
@@ -790,7 +822,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
                     style: TextStyle(
                       fontSize: 12.sp,
                       fontWeight: FontWeight.w600,
-                      color: _currentUser!.isPainter 
+                      color: _currentUser!.isPainter
                           ? const Color(0xFF10B981)
                           : const Color(0xFFF59E0B),
                     ),
@@ -830,9 +862,7 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
               ),
             ],
           ),
-          child: Column(
-            children: fields,
-          ),
+          child: Column(children: fields),
         ),
         SizedBox(height: 24.h),
       ],
@@ -845,21 +875,26 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
     bool required = false,
     TextInputType? keyboardType,
   }) {
+    final bool useUaePhoneField = UaePhoneUtils.isPhoneField(
+      keyboardType: keyboardType,
+    );
     return Padding(
       padding: EdgeInsets.only(bottom: 16.h),
       child: TextFormField(
         controller: _controllers[key],
         keyboardType: keyboardType,
+        inputFormatters: useUaePhoneField
+            ? UaePhoneUtils.inputFormatters()
+            : null,
         style: const TextStyle(
           color: Color(0xFF1F2937), // Ensure text color is dark
           fontSize: 16,
         ),
         decoration: InputDecoration(
           labelText: required ? '$label *' : label,
-          labelStyle: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 14,
-          ),
+          labelStyle: TextStyle(color: Colors.grey[600], fontSize: 14),
+          prefixText: useUaePhoneField ? UaePhoneUtils.countryPrefix : null,
+          hintText: useUaePhoneField ? UaePhoneUtils.localHint : null,
           filled: true,
           fillColor: Colors.white, // Explicit white background
           border: OutlineInputBorder(
@@ -892,9 +927,14 @@ class _AdminUserEditScreenState extends State<AdminUserEditScreen> {
                 if (value == null || value.trim().isEmpty) {
                   return '$label is required';
                 }
+                if (useUaePhoneField) {
+                  return UaePhoneUtils.validate(value, required: true);
+                }
                 return null;
               }
-            : null,
+            : (useUaePhoneField
+                  ? (value) => UaePhoneUtils.validate(value)
+                  : null),
       ),
     );
   }

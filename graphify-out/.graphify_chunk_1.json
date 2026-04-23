@@ -1,0 +1,47 @@
+{
+  "nodes": [
+    {"id": "profile_details_models_profile", "label": "Profile Details Model", "file_type": "code", "source_file": "lib/core/models/profile_details_models.dart"},
+    {"id": "retailer_registration_models_retailer", "label": "Retailer Registration Model", "file_type": "code", "source_file": "lib/core/models/retailer_registration_models.dart"},
+    {"id": "sales_monitoring_models_sales", "label": "Sales Monitoring Model", "file_type": "code", "source_file": "lib/core/models/sales_monitoring_models.dart"},
+    {"id": "sample_distribution_models_sample", "label": "Sample Distribution Model", "file_type": "code", "source_file": "lib/core/models/sample_distribution_models.dart"},
+    {"id": "sampling_drive_models_sampling", "label": "Sampling Drive Model", "file_type": "code", "source_file": "lib/core/models/sampling_drive_models.dart"},
+    {"id": "stock_models_stock", "label": "Stock Models", "file_type": "code", "source_file": "lib/core/models/stock_models.dart"},
+    {"id": "trade_partner_models_tradepartner", "label": "Trade Partner Model", "file_type": "code", "source_file": "lib/core/models/trade_partner_models.dart"},
+    {"id": "user_profile_models_userprofile", "label": "User Profile Model", "file_type": "code", "source_file": "lib/core/models/user_profile_models.dart"},
+    {"id": "api_client_apiclient", "label": "API Client (Network Layer)", "file_type": "code", "source_file": "lib/core/network/api_client.dart"},
+    {"id": "network_info_networkinfo", "label": "Network Connectivity Info", "file_type": "code", "source_file": "lib/core/network/network_info.dart"},
+    {"id": "ssl_http_client_sslhttpclient", "label": "SSL HTTP Client (Pinned)", "file_type": "code", "source_file": "lib/core/network/ssl_http_client.dart"},
+    {"id": "auth_provider_authprovider", "label": "Auth State Provider", "file_type": "code", "source_file": "lib/core/providers/auth_provider.dart"},
+    {"id": "app_router_approuter", "label": "App Navigation Router", "file_type": "code", "source_file": "lib/core/routes/app_router.dart"},
+    {"id": "route_names_routenames", "label": "App Route Definitions", "file_type": "code", "source_file": "lib/core/routes/route_names.dart"},
+    {"id": "activity_service_activityservice", "label": "Activity Management Service", "file_type": "code", "source_file": "lib/core/services/activity_service.dart"},
+    {"id": "admin_user_service_adminuserservice", "label": "Admin User Service", "file_type": "code", "source_file": "lib/core/services/admin_user_service.dart"},
+    {"id": "approval_service_approvalservice", "label": "Approval Workflow Service", "file_type": "code", "source_file": "lib/core/services/approval_service.dart"},
+    {"id": "auth_service_authservice", "label": "Authentication Service", "file_type": "code", "source_file": "lib/core/services/auth_service.dart"},
+    {"id": "autologin_service_autologinservice", "label": "Auto-Login Service", "file_type": "code", "source_file": "lib/core/services/autologin_service.dart"},
+    {"id": "bank_details_ocr_service_bankdetailsocrservice", "label": "Bank Details OCR Service", "file_type": "code", "source_file": "lib/core/services/bank_details_ocr_service.dart"},
+    {"id": "commercial_licence_ocr_service_commerciallicenceocrservice", "label": "Commercial Licence OCR", "file_type": "code", "source_file": "lib/core/services/commercial_licence_ocr_service.dart"},
+    {"id": "contractor_service_contractorservice", "label": "Contractor Management Service", "file_type": "code", "source_file": "lib/core/services/contractor_service.dart"}
+  ],
+  "edges": [
+    {"source": "auth_provider_authprovider", "target": "auth_service_authservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/providers/auth_provider.dart"},
+    {"source": "auth_service_authservice", "target": "api_client_apiclient", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/services/auth_service.dart"},
+    {"source": "api_client_apiclient", "target": "ssl_http_client_sslhttpclient", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/network/api_client.dart"},
+    {"source": "app_router_approuter", "target": "route_names_routenames", "relation": "references", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/routes/app_router.dart"},
+    {"source": "bank_details_ocr_service_bankdetailsocrservice", "target": "commercial_licence_ocr_service_commerciallicenceocrservice", "relation": "semantically_similar_to", "confidence": "INFERRED", "confidence_score": 0.8, "source_file": "lib/core/services"},
+    {"source": "autologin_service_autologinservice", "target": "auth_provider_authprovider", "relation": "calls", "confidence": "INFERRED", "confidence_score": 0.9, "source_file": "lib/core/services/autologin_service.dart"}
+  ],
+  "hyperedges": [
+    {
+      "id": "ocr_services_group",
+      "label": "OCR Capability Group",
+      "nodes": ["bank_details_ocr_service_bankdetailsocrservice", "commercial_licence_ocr_service_commerciallicenceocrservice"],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.9,
+      "source_file": "lib/core/services"
+    }
+  ],
+  "input_tokens": 12000,
+  "output_tokens": 2000
+}

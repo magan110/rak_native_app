@@ -50,6 +50,8 @@ class UserProfileData {
   final String? licenseAddress;
   final String? effectiveDate;
 
+  String? dateOfBirth;
+
   UserProfileData({
     this.inflCode,
     this.inflType,
@@ -132,9 +134,11 @@ class UserProfileData {
 
   /// Get full name combining first, middle, and last names
   String get fullName {
-    final parts = [firstName, middleName, lastName]
-        .where((part) => part != null && part.isNotEmpty)
-        .toList();
+    final parts = [
+      firstName,
+      middleName,
+      lastName,
+    ].where((part) => part != null && part.isNotEmpty).toList();
     return parts.join(' ');
   }
 
@@ -159,7 +163,7 @@ class UserProfileData {
   /// Check if painter-specific profile is complete
   bool get isPainterProfileComplete {
     if (!isPainter) return true; // Not applicable for contractors
-    
+
     return isBasicProfileComplete &&
         emiratesIdNumber != null &&
         emiratesIdNumber!.isNotEmpty &&
@@ -172,7 +176,7 @@ class UserProfileData {
   /// Check if contractor-specific profile is complete
   bool get isContractorProfileComplete {
     if (isPainter) return true; // Not applicable for painters
-    
+
     return isBasicProfileComplete &&
         contractorType != null &&
         contractorType!.isNotEmpty &&
@@ -255,7 +259,7 @@ class SmsUaeFullProfileResponse {
       exists: json['exists'] ?? false,
       inflType: json['inflType']?.toString(),
       route: json['route']?.toString(),
-      data: json['data'] != null 
+      data: json['data'] != null
           ? UserProfileData.fromJson(json['data'] as Map<String, dynamic>)
           : null,
       message: json['message']?.toString(),

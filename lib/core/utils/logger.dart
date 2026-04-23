@@ -14,19 +14,25 @@ class AppLogger {
     }
   }
 
-  /// Log info messages
+  /// Log info messages (debug mode only)
   void info(String message, [dynamic data]) {
-    _log(LogLevel.info, message, data);
+    if (kDebugMode) {
+      _log(LogLevel.info, message, data);
+    }
   }
 
-  /// Log warning messages
+  /// Log warning messages (debug mode only)
   void warning(String message, [dynamic data]) {
-    _log(LogLevel.warning, message, data);
+    if (kDebugMode) {
+      _log(LogLevel.warning, message, data);
+    }
   }
 
-  /// Log error messages
+  /// Log error messages (debug mode only)
   void error(String message, [dynamic data]) {
-    _log(LogLevel.error, message, data);
+    if (kDebugMode) {
+      _log(LogLevel.error, message, data);
+    }
   }
 
   /// Internal logging method

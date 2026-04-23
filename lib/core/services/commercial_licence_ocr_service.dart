@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import '../network/ssl_http_client.dart';
 
 class CommercialLicenseOcrService {
   // Replace with your actual API key
@@ -43,8 +44,9 @@ class CommercialLicenseOcrService {
 
       print('Sending document to OCR API at: $apiUrl');
 
-      // Send request
-      final streamedResponse = await request.send();
+      // Send request using SSL-enabled client
+      final client = await SslHttpClient.getClient();
+      final streamedResponse = await client.send(request);
       final response = await http.Response.fromStream(streamedResponse);
 
       // Process response

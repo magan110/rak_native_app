@@ -63,6 +63,7 @@ class AutoLoginService {
       userID: storedData['userID'] ?? storedData['userId'],
       emplName: storedData['emplName'] ?? storedData['userName'] ?? 'User',
       areaCode: storedData['areaCode'] ?? storedData['emirates'] ?? '',
+      deptCode: storedData['deptCode'] ?? '',
       roles: _parseStringList(storedData['roles']),
       pages: _parseStringList(storedData['pages']),
       appRegId: storedData['appRegId'],

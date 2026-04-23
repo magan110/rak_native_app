@@ -62,14 +62,16 @@ class LogoutRequest {
 class UserData {
   final String emplName;
   final String areaCode;
+  final String deptCode;
   final List<String> roles;
   final List<String> pages;
-  final String? userID; // Add userID field
-  final String? appRegId; // Add appRegId field
+  final String? userID;
+  final String? appRegId;
 
   const UserData({
     required this.emplName,
     required this.areaCode,
+    required this.deptCode,
     required this.roles,
     required this.pages,
     this.userID,
@@ -77,10 +79,11 @@ class UserData {
   });
 
   factory UserData.fromJson(Map<String, dynamic> json) => UserData(
-    emplName: json['emplName'] as String,
-    areaCode: json['areaCode'] as String,
-    roles: (json['roles'] as List<dynamic>).cast<String>(),
-    pages: (json['pages'] as List<dynamic>).cast<String>(),
+    emplName: (json['emplName'] ?? '').toString(),
+    areaCode: (json['areaCode'] ?? '').toString(),
+    deptCode: (json['deptCode'] ?? '').toString(),
+    roles: (json['roles'] as List<dynamic>? ?? []).cast<String>(),
+    pages: (json['pages'] as List<dynamic>? ?? []).cast<String>(),
     userID: json['userID'] as String?,
     appRegId: json['appRegId'] as String?,
   );
@@ -88,6 +91,7 @@ class UserData {
   Map<String, dynamic> toJson() => {
     'emplName': emplName,
     'areaCode': areaCode,
+    'deptCode': deptCode,
     'roles': roles,
     'pages': pages,
     'userID': userID,

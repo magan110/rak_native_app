@@ -60,7 +60,7 @@ class StorageService {
       final prefs = await SharedPreferences.getInstance();
       final appRegId = prefs.getString(_appRegIdKey);
       if (appRegId != null) {
-        _logger.debug('Retrieved app registration ID: $appRegId');
+        _logger.debug('Retrieved app registration ID: [present]');
       }
       return appRegId;
     } catch (e) {

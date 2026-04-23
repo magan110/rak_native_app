@@ -4,8 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/services/auth_service.dart';
+import 'package:rak_app/core/utils/snackbar_utils.dart';
 import 'package:rak_app/core/utils/responsive_utils.dart';
 import 'package:rak_app/shared/widgets/combined_logo_widget.dart';
+import 'package:rak_app/features/screens/presentation/pages/main_screens/widgets/home_welcome_card.dart';
+import 'package:rak_app/features/screens/presentation/pages/main_screens/widgets/home_featured_products.dart';
+import 'package:rak_app/features/screens/presentation/pages/main_screens/widgets/home_quick_actions.dart';
+import 'package:rak_app/features/screens/presentation/pages/main_screens/widgets/home_business_metrics.dart';
 
 /// Clean Modern Responsive Mobile Home Screen
 class HomeScreen extends StatefulWidget {
@@ -502,8 +507,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           onTap();
         },
         leading: Container(
-          height: 40.h,
-          width: 40.w,
+          height: 36.h,
+          width: 36.w,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [
@@ -519,35 +524,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               width: 1.w,
             ),
           ),
-          child: Icon(icon, color: const Color(0xFF1E3A8A), size: 20.sp),
+          child: Icon(icon, color: const Color(0xFF1E3A8A), size: 18.sp),
         ),
         title: Text(
           title,
           style: TextStyle(
-            fontSize: 15.sp,
+            fontSize: 14.sp,
             fontWeight: FontWeight.w600,
             color: const Color(0xFF1F2937),
-            letterSpacing: 0.2,
+            letterSpacing: 0.1,
           ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        trailing: Container(
-          padding: EdgeInsets.all(4.w),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E3A8A).withOpacity(0.05),
-            borderRadius: BorderRadius.circular(6.r),
-          ),
-          child: Icon(
-            Icons.chevron_right_rounded,
-            color: const Color(0xFF1E3A8A),
-            size: 18.sp,
-          ),
+        trailing: Icon(
+          Icons.chevron_right_rounded,
+          color: const Color(0xFF1E3A8A).withOpacity(0.6),
+          size: 20.sp,
         ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12.r),
         ),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        contentPadding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 6.h),
+        minLeadingWidth: 36.w,
       ),
     );
   }
@@ -596,21 +595,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildWelcomeCard(isTablet: isTablet, screenWidth: screenWidth),
+              HomeWelcomeCard(
+                isTablet: isTablet,
+                screenWidth: screenWidth,
+                scaleAnimation: _scaleAnimation,
+              ),
               SizedBox(height: isTablet ? 24.h : 20.h),
-              _buildFeaturedProducts(
+              HomeFeaturedProducts(
+                pageController: _pageController,
+                currentBannerIndex: _currentBannerIndex,
+                onPageChanged: (idx) =>
+                    setState(() => _currentBannerIndex = idx),
                 isTablet: isTablet,
                 isLandscape: isLandscape,
                 screenWidth: screenWidth,
               ),
               SizedBox(height: isTablet ? 24.h : 20.h),
-              _buildQuickActions(
+              HomeQuickActions(
                 isTablet: isTablet,
                 isLandscape: isLandscape,
                 screenWidth: screenWidth,
               ),
               SizedBox(height: isTablet ? 24.h : 20.h),
-              _buildBusinessMetrics(
+              HomeBusinessMetrics(
                 isTablet: isTablet,
                 isLandscape: isLandscape,
                 screenWidth: screenWidth,
@@ -999,11 +1006,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               },
             ),
             _buildQuickActionCard(
-              'Admin User Edit',
-              Icons.admin_panel_settings,
+              'DSR Entry',
+              Icons.assignment,
               const Color(0xFF3B82F6),
               () {
-                context.push('/admin-user-edit');
+                final currentUser = AuthManager.currentUser;
+                final loginId =
+                    currentUser?.userID ?? currentUser?.emplName ?? '';
+                context.push('/dsr-entry', extra: {'loginId': loginId});
+              },
+            ),
+            _buildQuickActionCard(
+              'Sample Distribution',
+              Icons.inventory_2_outlined,
+              const Color(0xFFF59E0B),
+              () {
+                context.push('/sample-distribution');
+              },
+            ),
+            _buildQuickActionCard(
+              'Activity Entry',
+              Icons.event_note_outlined,
+              const Color(0xFFEF4444),
+              () {
+                context.push('/activity-entry');
+              },
+            ),
+            _buildQuickActionCard(
+              'Sample Execution',
+              Icons.science_outlined,
+              const Color(0xFF8B5CF6),
+              () {
+                context.push('/sample-execution');
+              },
+            ),
+            _buildQuickActionCard(
+              'User Management',
+              Icons.people_outline,
+              const Color(0xFF06B6D4),
+              () {
+                context.push('/user-list');
               },
             ),
           ],
@@ -1214,21 +1256,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   style: TextStyle(fontSize: 11.sp, color: Colors.grey[600]),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                ),
-                SizedBox(height: 2.h),
-                Row(
-                  children: [
-                    Icon(Icons.trending_up, color: color, size: 12.sp),
-                    SizedBox(width: 2.w),
-                    Text(
-                      change,
-                      style: TextStyle(
-                        fontSize: 11.sp,
-                        color: color,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
@@ -1635,15 +1662,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         const Divider(height: 32),
         _buildDrawerItem(Icons.settings, 'Settings', () {
           if (isMobile) context.pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Settings - Coming Soon!')),
-          );
+          AppSnackBar.showInfo(context, 'Settings - Coming Soon!');
         }),
         _buildDrawerItem(Icons.help_outline, 'Help & Support', () {
           if (isMobile) context.pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Help & Support - Coming Soon!')),
-          );
+          AppSnackBar.showInfo(context, 'Help & Support - Coming Soon!');
         }),
         _buildDrawerItem(Icons.logout, 'Logout', () async {
           if (isMobile) Navigator.of(context).pop(); // Close drawer first
@@ -1663,42 +1686,78 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }),
         _buildDrawerItem(Icons.format_paint, 'Painter Registration', () {
           if (isMobile) context.pop();
-          // Navigate using named route so the correct screen is resolved
-          context.pushNamed('painter-registration');
+          // Navigate using named route with employee flag
+          context.pushNamed(
+            'painter-registration',
+            extra: {'isEmployeeRegistration': true},
+          );
         }),
         _buildDrawerItem(Icons.construction, 'Contractor Registration', () {
           if (isMobile) context.pop();
-          // Navigate using named route so the correct screen is resolved
-          context.pushNamed('contractor-registration');
+          // Navigate using named route with employee flag
+          context.pushNamed(
+            'contractor-registration',
+            extra: {'isEmployeeRegistration': true},
+          );
         }),
         _buildDrawerItem(Icons.approval, 'Approval Dashboard', () {
           if (isMobile) context.pop();
           context.push('/approval-dashboard');
         }),
-        _buildDrawerItem(Icons.storefront, 'Retailer Onboarding', () {
+        _buildDrawerItem(Icons.storefront, 'Retailer Registration', () {
           if (isMobile) context.pop();
           context.pushNamed('retailer-registration');
         }),
-        // _buildDrawerItem(Icons.inventory, 'Sample Distribution Entry', () {
-        //   if (isMobile) context.pop();
-        //   context.push('/sample-distribution');
-        // }),
-        // _buildDrawerItem(Icons.science, 'Sample Execution Entry', () {
-        //   if (isMobile) context.pop();
-        //   context.push('/sampling-drive-form');
-        // }),
+        _buildDrawerItem(Icons.event_note, 'Activity Entry', () {
+          if (isMobile) context.pop();
+          context.push('/activity-entry');
+        }),
+        _buildDrawerItem(Icons.assignment, 'DSR Entry', () {
+          if (isMobile) context.pop();
+          final currentUser = AuthManager.currentUser;
+          final loginId = currentUser?.userID ?? currentUser?.emplName ?? '';
+          context.pushNamed('dsr-entry', extra: {'loginId': loginId});
+        }),
+        _buildDrawerItem(Icons.people, 'User Management', () {
+          if (isMobile) context.pop();
+          context.push('/user-list');
+        }),
+        _buildDrawerItem(Icons.inventory, 'Sample Distribution', () {
+          if (isMobile) context.pop();
+          context.push('/sample-distribution');
+        }),
+        _buildDrawerItem(Icons.science, 'Sample Execution', () {
+          if (isMobile) context.pop();
+          context.push('/sample-execution');
+        }),
+        _buildDrawerItem(Icons.store, 'Trade Partner', () {
+          if (isMobile) context.pop();
+          context.push('/trade-partner-home');
+        }),
+        _buildDrawerItem(Icons.inventory_2, 'Stock Visibility', () {
+          if (isMobile) context.pop();
+          context.push('/stock-entry');
+        }),
+        _buildDrawerItem(Icons.map, 'Market Mapping', () {
+          if (isMobile) context.pop();
+          context.push('/market-mapping-home');
+        }),
+        _buildDrawerItem(Icons.analytics, 'Sales Monitoring', () {
+          if (isMobile) context.pop();
+          context.push('/sales-monitoring-home');
+        }),
+        _buildDrawerItem(Icons.track_changes, 'Product Journey', () {
+          if (isMobile) context.pop();
+          context.push('/product-journey');
+        }),
         const Divider(height: 32),
         _buildDrawerItem(Icons.settings, 'Settings', () {
           if (isMobile) context.pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Settings - Coming Soon!')),
-          );
+          AppSnackBar.showInfo(context, 'Settings - Coming Soon!');
         }),
         _buildDrawerItem(Icons.help_outline, 'Help & Support', () {
           if (isMobile) context.pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Help & Support - Coming Soon!')),
-          );
+          AppSnackBar.showInfo(context, 'Help & Support - Coming Soon!');
         }),
         _buildDrawerItem(Icons.logout, 'Logout', () async {
           if (isMobile) Navigator.of(context).pop(); // Close drawer first
@@ -1770,9 +1829,11 @@ class _CustomSearchDelegate extends SearchDelegate<String> {
         [
               'Painter Registration',
               'Contractor Registration',
-              'Retailer Onboarding',
-              // 'Sample Distribution',
+              'Retailer Registration',
+              'Sample Distribution',
+              'Sample Execution',
               'Activity Entry',
+              'User Management',
             ]
             .where(
               (suggestion) =>

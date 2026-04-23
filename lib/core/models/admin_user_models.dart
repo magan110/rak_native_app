@@ -247,7 +247,7 @@ class AdminUserData {
   }
 
   /// Convert to update request format - matches UseUpdatePatch exactly
-  Map<String, dynamic> toUpdateJson() {
+  Map<String, dynamic> toUpdateJson({String? loginId}) {
     final Map<String, dynamic> json = {};
     
     // Helper function to check if value is valid (not null, not empty, and not "{}")
@@ -255,6 +255,11 @@ class AdminUserData {
       if (value == null) return false;
       final trimmed = value.trim();
       return trimmed.isNotEmpty && trimmed != '{}' && trimmed != 'null';
+    }
+    
+    // Add loginId if provided
+    if (isValid(loginId)) {
+      json['loginId'] = loginId;
     }
     
     // Match the API's UseUpdatePatch field names exactly

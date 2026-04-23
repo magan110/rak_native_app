@@ -114,23 +114,23 @@ class ApprovalResponse {
 
 class ApprovalActionRequest {
   final String inflCode;
-  final String? actorId;
+  final String? loginId;
 
-  ApprovalActionRequest({required this.inflCode, this.actorId});
+  ApprovalActionRequest({required this.inflCode, this.loginId});
 
   Map<String, dynamic> toJson() {
-    return {'inflCode': inflCode, 'actorId': actorId};
+    return {'inflCode': inflCode, 'loginId': loginId};
   }
 }
 
 class RejectionActionRequest extends ApprovalActionRequest {
   final String? reason;
 
-  RejectionActionRequest({required super.inflCode, super.actorId, this.reason});
+  RejectionActionRequest({required super.inflCode, super.loginId, this.reason});
 
   @override
   Map<String, dynamic> toJson() {
-    return {'inflCode': inflCode, 'actorId': actorId, 'reason': reason};
+    return {'inflCode': inflCode, 'loginId': loginId, 'reason': reason};
   }
 }
 
@@ -162,6 +162,54 @@ class ApprovalActionResponse {
   }
 }
 
+class EmiratesIdDetails {
+  final String number;
+  final String idHolder;
+  final String nationality;
+  final String employer;
+  final String issueDate;
+  final String expiryDate;
+  final String occupation;
+  final String emirate;
+
+  EmiratesIdDetails({
+    required this.number,
+    required this.idHolder,
+    required this.nationality,
+    required this.employer,
+    required this.issueDate,
+    required this.expiryDate,
+    required this.occupation,
+    required this.emirate,
+  });
+
+  factory EmiratesIdDetails.fromJson(Map<String, dynamic> json) {
+    return EmiratesIdDetails(
+      number: json['number'] ?? '',
+      idHolder: json['idHolder'] ?? '',
+      nationality: json['nationality'] ?? '',
+      employer: json['employer'] ?? '',
+      issueDate: json['issueDate'] ?? '',
+      expiryDate: json['expiryDate'] ?? '',
+      occupation: json['occupation'] ?? '',
+      emirate: json['emirate'] ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'number': number,
+      'idHolder': idHolder,
+      'nationality': nationality,
+      'employer': employer,
+      'issueDate': issueDate,
+      'expiryDate': expiryDate,
+      'occupation': occupation,
+      'emirate': emirate,
+    };
+  }
+}
+
 class RegistrationDetails {
   final bool success;
   final String id;
@@ -171,6 +219,7 @@ class RegistrationDetails {
   final String email;
   final String submittedDate;
   final String status;
+  final String stage;
   final String fullName;
   final String address;
   final String reference;
@@ -182,6 +231,16 @@ class RegistrationDetails {
   final String bankName;
   final String branch;
   final String avatar;
+  final EmiratesIdDetails? emiratesId;
+  
+  // Document URLs/paths
+  final String? profilePhoto;
+  final String? emiratesIdFront;
+  final String? emiratesIdBack;
+  final String? bankDocument;
+  final String? contractorCertificate;
+  final String? vatCertificate;
+  final String? commercialLicense;
 
   RegistrationDetails({
     required this.success,
@@ -192,6 +251,7 @@ class RegistrationDetails {
     required this.email,
     required this.submittedDate,
     required this.status,
+    required this.stage,
     required this.fullName,
     required this.address,
     required this.reference,
@@ -203,6 +263,14 @@ class RegistrationDetails {
     required this.bankName,
     required this.branch,
     required this.avatar,
+    this.emiratesId,
+    this.profilePhoto,
+    this.emiratesIdFront,
+    this.emiratesIdBack,
+    this.bankDocument,
+    this.contractorCertificate,
+    this.vatCertificate,
+    this.commercialLicense,
   });
 
   factory RegistrationDetails.fromJson(Map<String, dynamic> json) {
@@ -215,6 +283,7 @@ class RegistrationDetails {
       email: json['email'] ?? '',
       submittedDate: json['submittedDate'] ?? '',
       status: json['status'] ?? '',
+      stage: json['stage'] ?? 'EID_PENDING',
       fullName: json['fullName'] ?? '',
       address: json['address'] ?? '',
       reference: json['reference'] ?? '',
@@ -226,6 +295,16 @@ class RegistrationDetails {
       bankName: json['bankName'] ?? '',
       branch: json['branch'] ?? '',
       avatar: json['avatar'] ?? '',
+      emiratesId: json['emiratesId'] != null
+          ? EmiratesIdDetails.fromJson(json['emiratesId'])
+          : null,
+      profilePhoto: json['profilePhoto'],
+      emiratesIdFront: json['emiratesIdFront'],
+      emiratesIdBack: json['emiratesIdBack'],
+      bankDocument: json['bankDocument'],
+      contractorCertificate: json['contractorCertificate'],
+      vatCertificate: json['vatCertificate'],
+      commercialLicense: json['commercialLicense'],
     );
   }
 
@@ -239,6 +318,7 @@ class RegistrationDetails {
       'email': email,
       'submittedDate': submittedDate,
       'status': status,
+      'stage': stage,
       'fullName': fullName,
       'address': address,
       'reference': reference,
@@ -250,6 +330,14 @@ class RegistrationDetails {
       'bankName': bankName,
       'branch': branch,
       'avatar': avatar,
+      'emiratesId': emiratesId?.toJson(),
+      'profilePhoto': profilePhoto,
+      'emiratesIdFront': emiratesIdFront,
+      'emiratesIdBack': emiratesIdBack,
+      'bankDocument': bankDocument,
+      'contractorCertificate': contractorCertificate,
+      'vatCertificate': vatCertificate,
+      'commercialLicense': commercialLicense,
     };
   }
 }

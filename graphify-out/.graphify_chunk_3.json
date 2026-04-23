@@ -1,0 +1,39 @@
+{
+  "nodes": [
+    {"id": "storage_service_storageservice", "label": "Storage Service (Local DB)", "file_type": "code", "source_file": "lib/core/services/storage_service.dart"},
+    {"id": "trade_partner_service_tradepartnerservice", "label": "Trade Partner Service", "file_type": "code", "source_file": "lib/core/services/trade_partner_service.dart"},
+    {"id": "vat_certificate_ocr_service_vatcertificateocrservice", "label": "VAT Certificate OCR", "file_type": "code", "source_file": "lib/core/services/vat_certificate_ocr_service.dart"},
+    {"id": "app_colors_appcolors", "label": "App Colors Palette", "file_type": "code", "source_file": "lib/core/theme/app_colors.dart"},
+    {"id": "app_theme_apptheme", "label": "App Global Theme", "file_type": "code", "source_file": "lib/core/theme/app_theme.dart"},
+    {"id": "logger_logger", "label": "App Logger", "file_type": "code", "source_file": "lib/core/utils/logger.dart"},
+    {"id": "snackbar_utils_snackbarutils", "label": "SnackBar Utility", "file_type": "code", "source_file": "lib/core/utils/snackbar_utils.dart"},
+    {"id": "validators_validators", "label": "Input Validators", "file_type": "code", "source_file": "lib/core/utils/validators.dart"},
+    {"id": "activity_entry_screen_activityentryscreen", "label": "Activity Entry Screen", "file_type": "code", "source_file": "lib/features/activity/screens/activity_entry_screen.dart"},
+    {"id": "dsr_entry_screen_dsrentryscreen", "label": "DSR Entry Screen", "file_type": "code", "source_file": "lib/features/dsr/presentation/dsr_entry_screen.dart"},
+    {"id": "market_mapping_home_screen_marketmappinghomescreen", "label": "Market Mapping Home", "file_type": "code", "source_file": "lib/features/market_mapping/presentation/screens/market_mapping_home_screen.dart"},
+    {"id": "product_journey_screen_productjourneyscreen", "label": "Product Journey Screen", "file_type": "code", "source_file": "lib/features/product_journey/presentation/screens/product_journey_screen.dart"},
+    {"id": "quality_control_approval_dashboard", "label": "QC Approval Dashboard", "file_type": "code", "source_file": "lib/features/quality_control/approval_dashboard.dart"},
+    {"id": "retailer_onboarding_screen_retaileronboardingscreen", "label": "Retailer Onboarding Screen", "file_type": "code", "source_file": "lib/features/retailer/screens/retailer_onboarding_screen.dart"}
+  ],
+  "edges": [
+    {"source": "activity_entry_screen_activityentryscreen", "target": "activity_service_activityservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/activity/screens/activity_entry_screen.dart"},
+    {"source": "dsr_entry_screen_dsrentryscreen", "target": "dsr_service_dsrservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/dsr/presentation/dsr_entry_screen.dart"},
+    {"source": "retailer_onboarding_screen_retaileronboardingscreen", "target": "retailer_registration_service_retailerregistrationservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/retailer/screens/retailer_onboarding_screen.dart"},
+    {"source": "app_theme_apptheme", "target": "app_colors_appcolors", "relation": "references", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/theme/app_theme.dart"},
+    {"source": "snackbar_utils_snackbarutils", "target": "context_extension_contextx", "relation": "rationale_for", "confidence": "INFERRED", "confidence_score": 0.95, "source_file": "lib/core/utils/snackbar_utils.dart"},
+    {"source": "validators_validators", "target": "activity_entry_screen_activityentryscreen", "relation": "references", "confidence": "INFERRED", "confidence_score": 0.9, "source_file": "lib/core/utils/validators.dart"}
+  ],
+  "hyperedges": [
+    {
+      "id": "entry_screens",
+      "label": "Data Entry Modules",
+      "nodes": ["activity_entry_screen_activityentryscreen", "dsr_entry_screen_dsrentryscreen", "retailer_onboarding_screen_retaileronboardingscreen"],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "lib/features"
+    }
+  ],
+  "input_tokens": 14000,
+  "output_tokens": 2200
+}

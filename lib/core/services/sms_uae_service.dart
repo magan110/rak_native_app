@@ -2,9 +2,23 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
 import '../models/user_profile_models.dart';
+import '../network/api_client.dart';
+import '../utils/logger.dart';
 
 /// Service class for SMS UAE API integration
 class SmsUaeService {
+  static http.Client? _httpClient;
+  static final AppLogger _logger = AppLogger();
+
+  /// Get SSL-enabled HTTP client
+  static Future<http.Client> _getClient() async {
+    if (_httpClient == null) {
+      final apiClient = await ApiClient.getInstance();
+      _httpClient = apiClient.client;
+    }
+    return _httpClient!;
+  }
+
   /// Test connectivity to different endpoints to find working ones
   static Future<Map<String, bool>> testEndpointConnectivity() async {
     final endpoints = {
@@ -19,9 +33,10 @@ class SmsUaeService {
 
     for (final entry in endpoints.entries) {
       try {
-        print('🔍 Testing ${entry.key}: ${entry.value}');
+        _logger.debug('Testing ${entry.key}: ${entry.value}');
 
-        final response = await http
+        final client = await _getClient();
+        final response = await client
             .get(
               Uri.parse(entry.value),
               headers: {'Accept': 'application/json'},
@@ -34,10 +49,12 @@ class SmsUaeService {
             !response.body.contains('<!DOCTYPE html>');
 
         results[entry.key] = isWorking;
-        print('${isWorking ? '✅' : '❌'} ${entry.key}: ${response.statusCode}');
+        _logger.debug(
+          '${entry.key}: ${response.statusCode} - ${isWorking ? 'OK' : 'FAIL'}',
+        );
       } catch (e) {
         results[entry.key] = false;
-        print('❌ ${entry.key}: $e');
+        _logger.error('${entry.key}: $e');
       }
     }
 
@@ -47,17 +64,17 @@ class SmsUaeService {
   /// Check if the SMS UAE service is healthy
   static Future<bool> checkHealth() async {
     try {
-      print('🏥 Health check URL: ${ApiConfig.healthCheckUrl}');
-      final response = await http
+      _logger.debug('Health check URL: ${ApiConfig.healthCheckUrl}');
+      final client = await _getClient();
+      final response = await client
           .get(Uri.parse(ApiConfig.healthCheckUrl))
           .timeout(ApiConfig.defaultTimeout);
 
-      print('🏥 Health check status: ${response.statusCode}');
-      print('🏥 Health check body: ${response.body}');
+      _logger.debug('Health check status: ${response.statusCode}');
 
       return response.statusCode == 200;
     } catch (e) {
-      print('❌ Health check error: $e');
+      _logger.error('Health check error: $e');
       return false;
     }
   }
@@ -65,7 +82,8 @@ class SmsUaeService {
   /// Verify if mobile number is registered
   static Future<SmsUaeVerifyResponse> verifyMobile(String mobileNo) async {
     try {
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(
             Uri.parse(ApiConfig.verifyMobileUrl),
             headers: ApiConfig.standardHeaders,
@@ -95,7 +113,8 @@ class SmsUaeService {
   /// Get route information for mobile number (painter/contractor)
   static Future<SmsUaeRouteResponse> getRouteByMobile(String mobileNo) async {
     try {
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(
             Uri.parse(ApiConfig.routeByMobileUrl),
             headers: ApiConfig.standardHeaders,
@@ -128,8 +147,9 @@ class SmsUaeService {
     String mobileNo,
   ) async {
     try {
-      print('🔍 Fetching full profile for mobile: $mobileNo');
-      final response = await http
+      _logger.debug('Fetching full profile for mobile');
+      final client = await _getClient();
+      final response = await client
           .post(
             Uri.parse(ApiConfig.routeByMobileUrl),
             headers: ApiConfig.standardHeaders,
@@ -137,8 +157,7 @@ class SmsUaeService {
           )
           .timeout(ApiConfig.defaultTimeout);
 
-      print('📡 Full profile response status: ${response.statusCode}');
-      print('📡 Full profile response body: ${response.body}');
+      _logger.debug('Full profile response status: ${response.statusCode}');
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -154,7 +173,7 @@ class SmsUaeService {
         statusCode: response.statusCode,
       );
     } catch (e) {
-      print('❌ Error fetching full profile: $e');
+      _logger.error('Error fetching full profile: $e');
       return SmsUaeFullProfileResponse(
         success: false,
         exists: false,
@@ -172,12 +191,10 @@ class SmsUaeService {
     String countryCode = 'ALL',
   }) async {
     try {
-      print('🌐 Direct SMS API call to: ${ApiConfig.sendSmsUrl}');
-      print(
-        '📤 Request body: ${jsonEncode({'mobileNo': mobileNo, 'message': message, 'priority': priority, 'countryCode': countryCode})}',
-      );
+      _logger.debug('Direct SMS API call to: ${ApiConfig.sendSmsUrl}');
 
-      final response = await http
+      final client = await _getClient();
+      final response = await client
           .post(
             Uri.parse(ApiConfig.sendSmsUrl),
             headers: ApiConfig.standardHeaders,
@@ -190,13 +207,12 @@ class SmsUaeService {
           )
           .timeout(ApiConfig.smsTimeout);
 
-      print('📡 Direct SMS response status: ${response.statusCode}');
-      print('📡 Direct SMS response body: ${response.body}');
+      _logger.debug('Direct SMS response status: ${response.statusCode}');
 
       // Check if response is HTML (WAF error page)
       if (response.body.trim().startsWith('<!DOCTYPE html>') ||
           response.body.trim().startsWith('<html>')) {
-        print('❌ Direct SMS received HTML error page');
+        _logger.warning('Direct SMS received HTML error page');
         return SmsUaeSendResponse(
           success: false,
           statusCode: response.statusCode,
@@ -206,14 +222,14 @@ class SmsUaeService {
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      print('📡 Parsed response data: $data');
+      _logger.debug('Parsed response data keys: ${data.keys.toList()}');
 
       // Check if the response contains "Invalid Mobile No." error
       final responseText = data['response']?.toString() ?? '';
       final isInvalidMobile = responseText.contains('Invalid Mobile No.');
 
       if (isInvalidMobile) {
-        print('❌ Invalid mobile number detected in response');
+        _logger.warning('Invalid mobile number detected in response');
         return SmsUaeSendResponse(
           success: false,
           statusCode: data['statusCode'] ?? response.statusCode,
@@ -232,7 +248,7 @@ class SmsUaeService {
         message: data['message']?.toString(),
       );
     } catch (e) {
-      print('❌ Direct SMS error: $e');
+      _logger.error('Direct SMS error: $e');
       return SmsUaeSendResponse(
         success: false,
         statusCode: 0,
@@ -259,7 +275,7 @@ class SmsUaeService {
 
     for (int i = 0; i < approaches.length; i++) {
       try {
-        print('🔄 Attempt ${i + 1}: Trying approach ${i + 1}');
+        _logger.debug('Attempt ${i + 1}: Trying approach ${i + 1}');
 
         final response = await approaches[i](
           mobileNo: mobileNo,
@@ -280,7 +296,7 @@ class SmsUaeService {
           await Future.delayed(Duration(milliseconds: 500 * (i + 1)));
         }
       } catch (e) {
-        print('❌ Approach ${i + 1} failed: $e');
+        _logger.error('Approach ${i + 1} failed: $e');
         if (i == approaches.length - 1) {
           return SmsUaeSendIfRegisteredResponse(
             success: false,
@@ -309,12 +325,10 @@ class SmsUaeService {
     String priority = 'High',
     String countryCode = 'ALL',
   }) async {
-    print('🌐 Making API call to: ${ApiConfig.sendIfRegisteredUrl}');
-    print(
-      '📱 Request body: ${jsonEncode({'mobileNo': mobileNo, 'message': message, 'priority': priority, 'countryCode': countryCode})}',
-    );
+    _logger.debug('Making API call to: ${ApiConfig.sendIfRegisteredUrl}');
 
-    final response = await http
+    final client = await _getClient();
+    final response = await client
         .post(
           Uri.parse(ApiConfig.sendIfRegisteredUrl),
           headers: ApiConfig.standardHeaders,
@@ -327,8 +341,7 @@ class SmsUaeService {
         )
         .timeout(ApiConfig.smsTimeout);
 
-    print('📡 Response status: ${response.statusCode}');
-    print('📡 Response body: ${response.body}');
+    _logger.debug('Standard headers response status: ${response.statusCode}');
 
     return _parseResponse(response);
   }
@@ -340,14 +353,15 @@ class SmsUaeService {
     String priority = 'High',
     String countryCode = 'ALL',
   }) async {
-    print('🔄 Trying minimal headers approach...');
+    _logger.debug('Trying minimal headers approach...');
 
     final minimalHeaders = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
 
-    final response = await http
+    final client = await _getClient();
+    final response = await client
         .post(
           Uri.parse(ApiConfig.sendIfRegisteredUrl),
           headers: minimalHeaders,
@@ -360,7 +374,7 @@ class SmsUaeService {
         )
         .timeout(ApiConfig.smsTimeout);
 
-    print('📡 Minimal headers response status: ${response.statusCode}');
+    _logger.debug('Minimal headers response status: ${response.statusCode}');
     return _parseResponse(response);
   }
 
@@ -371,7 +385,7 @@ class SmsUaeService {
     String priority = 'High',
     String countryCode = 'ALL',
   }) async {
-    print('🔄 Trying delayed retry approach...');
+    _logger.debug('Trying delayed retry approach...');
 
     // Wait a bit to avoid rate limiting
     await Future.delayed(const Duration(milliseconds: 1000));
@@ -380,7 +394,8 @@ class SmsUaeService {
     customHeaders['X-Retry-Attempt'] = 'true';
     customHeaders['X-Client-Version'] = '1.0.0';
 
-    final response = await http
+    final client = await _getClient();
+    final response = await client
         .post(
           Uri.parse(ApiConfig.sendIfRegisteredUrl),
           headers: customHeaders,
@@ -393,7 +408,7 @@ class SmsUaeService {
         )
         .timeout(ApiConfig.smsTimeout);
 
-    print('📡 Delayed retry response status: ${response.statusCode}');
+    _logger.debug('Delayed retry response status: ${response.statusCode}');
     return _parseResponse(response);
   }
 
@@ -403,7 +418,7 @@ class SmsUaeService {
       // Check if response is HTML (WAF error page)
       if (response.body.trim().startsWith('<!DOCTYPE html>') ||
           response.body.trim().startsWith('<html>')) {
-        print('❌ Received HTML error page instead of JSON');
+        _logger.warning('Received HTML error page instead of JSON');
         return SmsUaeSendIfRegisteredResponse(
           success: false,
           exists: false,
@@ -426,7 +441,7 @@ class SmsUaeService {
         statusCode: response.statusCode,
       );
     } catch (e) {
-      print('❌ Failed to parse response: $e');
+      _logger.error('Failed to parse response: $e');
       return SmsUaeSendIfRegisteredResponse(
         success: false,
         exists: false,

@@ -1,6 +1,8 @@
+import 'package:rak_app/core/utils/uae_phone_utils.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -11,22 +13,31 @@ import '../../../../../shared/widgets/file_upload_widget.dart';
 import '../../../../../shared/widgets/responsive_widgets.dart';
 import '../../../../../core/services/emirates_id_ocr_service.dart';
 import '../../../../../core/services/bank_details_ocr_service.dart';
-import '../../../../../core/services/vat_certificate_ocr_service.dart';
-import '../../../../../core/services/commercial_licence_ocr_service.dart';
+import '../../../../../core/services/hybrid_ocr_service.dart';
 import '../../../../../core/services/contractor_service.dart';
 import '../../../../../core/services/autologin_service.dart';
+import '../../../../../core/services/auth_service.dart';
 import '../../../../../core/services/image_upload_service.dart';
 import '../../../../../core/services/sms_uae_service.dart';
+import '../../../../../core/services/kyc_status_service.dart';
 import '../../../../../core/config/api_config.dart';
 import '../../../../../core/models/contractor_models.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
+import '../../../../../core/models/kyc_status_models.dart';
+import '../../../../../shared/widgets/kyc_status_widget.dart';
+import '../../../../../core/utils/snackbar_utils.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/routes/route_names.dart';
 
 class ContractorRegistrationScreen extends StatefulWidget {
-  const ContractorRegistrationScreen({super.key});
+  final bool isEmployeeRegistration;
+
+  const ContractorRegistrationScreen({
+    super.key,
+    this.isEmployeeRegistration = false,
+  });
 
   @override
   State<ContractorRegistrationScreen> createState() =>
@@ -94,6 +105,18 @@ class _ContractorRegistrationScreenState
   String? _selectedLicenseType;
   String? _selectedIssuingAuthority;
 
+  // Master location lists and selection codes/names
+  List<EmirateItem> _emiratesList = [];
+  List<AreaItem> _areasList = [];
+  List<SubAreaItem> _subAreasList = [];
+  String? _selectedEmirateCode;
+  String? _selectedArea;
+  String? _selectedAreaCode;
+  String? _selectedSubArea;
+  String? _selectedSubAreaCode;
+  bool _hasSubArea = false;
+  final TextEditingController _poBoxController = TextEditingController();
+
   // File upload paths to persist across navigation
   String? _profilePhotoPath;
   String? _certificatePath;
@@ -127,24 +150,29 @@ class _ContractorRegistrationScreenState
   Timer? _resendTimer;
   SharedPreferences? _prefs;
 
+  // KYC Status state
+  KycStatusResponse? _kycStatus;
+  bool _isCheckingKycStatus = false;
+
   // OTP constants
   static const _otpKeyCode = 'contractor_otp_code';
   static const _otpKeyMobile = 'contractor_otp_mobile';
   static const _otpKeyExpiry = 'contractor_otp_expiry';
   static const _otpKeyCooldown = 'contractor_otp_cooldown';
 
-  // Emirates ID OCR service instance
+  // Bypass configuration — only active in debug mode
+  static final String _bypassMobile = kDebugMode ? '527777777' : '';
+  static final String _bypassOtp = kDebugMode ? '123456' : '';
+
+  // Scroll controller for scrolling to top on step change
+  final ScrollController _scrollController = ScrollController();
+
+  // Hybrid OCR service (Gemini with ML Kit fallback)
+  final HybridOcrService _hybridOcrService = HybridOcrService();
+
+  // Legacy OCR services (kept for compatibility)
   final EmiratesIdOcrService _ocrService = EmiratesIdOcrService();
-
-  // Bank details OCR service instance
   final BankDetailsOcrService _bankOcrService = BankDetailsOcrService();
-
-  // VAT certificate OCR service instance
-  final VatCertificateOcrService _vatOcrService = VatCertificateOcrService();
-
-  // Commercial Licence OCR service instance
-  final CommercialLicenceOcrService _commercialLicenceOcrService =
-      CommercialLicenceOcrService();
 
   // OCR processing states for unified system
   // Note: These states are managed by individual boolean flags above
@@ -152,6 +180,13 @@ class _ContractorRegistrationScreenState
   @override
   void initState() {
     super.initState();
+
+    // Skip mobile verification step for employee registration
+    if (widget.isEmployeeRegistration) {
+      _currentStep = 2; // Start from Emirates ID step
+      _isOtpVerified = true; // Mark as verified to allow progression
+    }
+
     _mainController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
@@ -182,15 +217,23 @@ class _ContractorRegistrationScreenState
     _mainController.forward();
     _fabController.forward();
 
-    // Add listener for mobile number validation
-    _mobileController.addListener(_onMobileNumberChanged);
+    // Add listener for mobile number validation only if not employee registration
+    if (!widget.isEmployeeRegistration) {
+      _mobileController.addListener(_onMobileNumberChanged);
+    }
+    // Load master data for location dropdowns
+    _loadEmirates();
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
     _resendTimer?.cancel();
-    _mobileController.removeListener(_onMobileNumberChanged);
+    if (!widget.isEmployeeRegistration) {
+      _mobileController.removeListener(_onMobileNumberChanged);
+    }
+    _poBoxController.dispose();
+    _scrollController.dispose();
     _mainController.dispose();
     _fabController.dispose();
     _firstNameController.dispose();
@@ -226,8 +269,6 @@ class _ContractorRegistrationScreenState
     _effectiveRegDateController.dispose();
     _effectiveVatDateController.dispose();
 
-    _commercialLicenceOcrService.dispose();
-
     super.dispose();
   }
 
@@ -236,6 +277,7 @@ class _ContractorRegistrationScreenState
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: CustomScrollView(
+        controller: _scrollController,
         slivers: [
           SliverAppBar(
             expandedHeight: 200.h,
@@ -505,6 +547,12 @@ class _ContractorRegistrationScreenState
                 setState(() {
                   _currentStep--;
                 });
+                // Scroll to top
+                _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                );
               },
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFF1E3A8A),
@@ -539,23 +587,68 @@ class _ContractorRegistrationScreenState
             onPressed: _isSubmitting
                 ? null
                 : () {
-                    if (_currentStep == 1 && !_isOtpVerified) {
+                    // Skip OTP verification for employee registration
+                    if (_currentStep == 1 &&
+                        !_isOtpVerified &&
+                        !widget.isEmployeeRegistration) {
                       // Cannot proceed without OTP verification
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Please verify your mobile number with OTP first',
-                          ),
-                          backgroundColor: Colors.orange,
-                        ),
+                      AppSnackBar.showWarning(
+                        context,
+                        'Please verify your mobile number with OTP first',
                       );
                       return;
+                    }
+
+                    // Validate contractor type and location hierarchy when moving from step 3 to step 4
+                    if (_currentStep == 3) {
+                      if (_selectedContractorType == null ||
+                          _selectedContractorType!.isEmpty) {
+                        AppSnackBar.showError(
+                          context,
+                          'Please select a contractor type to continue',
+                        );
+                        return;
+                      }
+
+                      if (_selectedEmirateCode == null ||
+                          _selectedEmirateCode!.isEmpty) {
+                        AppSnackBar.showError(
+                          context,
+                          'Please select an emirate to continue',
+                        );
+                        return;
+                      }
+
+                      if (_selectedAreaCode == null ||
+                          _selectedAreaCode!.isEmpty) {
+                        AppSnackBar.showError(
+                          context,
+                          'Please select an area to continue',
+                        );
+                        return;
+                      }
+
+                      if (_hasSubArea == true &&
+                          (_selectedSubAreaCode == null ||
+                              _selectedSubAreaCode!.isEmpty)) {
+                        AppSnackBar.showError(
+                          context,
+                          'Please select a sub-area to continue',
+                        );
+                        return;
+                      }
                     }
 
                     if (_currentStep < 5) {
                       setState(() {
                         _currentStep++;
                       });
+                      // Scroll to top
+                      _scrollController.animateTo(
+                        0,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOut,
+                      );
                     } else {
                       // Submit form
                       _submitContractorRegistration();
@@ -709,22 +802,23 @@ class _ContractorRegistrationScreenState
     final mobileRaw = _mobileController.text.trim();
     final mobileErr = ContractorService.validateMobileNumber(mobileRaw);
     if (mobileErr != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mobileErr), backgroundColor: Colors.red),
-      );
+      AppSnackBar.showError(context, mobileErr);
       return;
     }
+
+    // Check if this is the bypass number
+    final cleanedMobile = mobileRaw.replaceAll(RegExp(r'\D'), '');
+    final isBypassNumber =
+        cleanedMobile == _bypassMobile ||
+        cleanedMobile == '971$_bypassMobile' ||
+        cleanedMobile.endsWith(_bypassMobile);
 
     // Check cooldown
     final leftMs = await _getResendCooldownLeft();
     if (leftMs != null && leftMs > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Please wait ${(leftMs / 1000).ceil()} seconds before resending',
-          ),
-          backgroundColor: Colors.orange,
-        ),
+      AppSnackBar.showWarning(
+        context,
+        'Please wait ${(leftMs / 1000).ceil()} seconds before resending',
       );
       return;
     }
@@ -732,6 +826,22 @@ class _ContractorRegistrationScreenState
     setState(() => _isSendingOtp = true);
 
     try {
+      // If bypass number, skip SMS and use fixed OTP
+      if (isBypassNumber) {
+        debugPrint('🔓 Bypass number detected (Contractor): $mobileRaw');
+        await _saveOtpLocally(
+          mobile: _normalizeForPrefs(mobileRaw),
+          otp: _bypassOtp,
+        );
+        await _setResendCooldown();
+        setState(() {
+          _showOtpField = true;
+        });
+        AppSnackBar.showSuccess(context, 'OTP: $_bypassOtp (Bypass mode)');
+        setState(() => _isSendingOtp = false);
+        return;
+      }
+
       final otp = _genOtp6();
       final formats = _getAllMobileFormats(mobileRaw);
       bool sent = false;
@@ -756,12 +866,7 @@ class _ContractorRegistrationScreenState
           setState(() {
             _showOtpField = true;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('OTP sent successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          AppSnackBar.showSuccess(context, 'OTP sent successfully');
           break;
         } else {
           lastError = result.message ?? 'Failed to send OTP';
@@ -769,17 +874,10 @@ class _ContractorRegistrationScreenState
       }
 
       if (!sent && lastError != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(lastError), backgroundColor: Colors.red),
-        );
+        AppSnackBar.showError(context, lastError);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error sending OTP: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppSnackBar.showError(context, 'Error sending OTP: ${e.toString()}');
     } finally {
       setState(() => _isSendingOtp = false);
     }
@@ -788,23 +886,13 @@ class _ContractorRegistrationScreenState
   Future<void> _verifyOtp() async {
     final enteredOtp = _otpController.text.trim();
     if (enteredOtp.length != 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid 6-digit OTP'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppSnackBar.showError(context, 'Please enter a valid 6-digit OTP');
       return;
     }
 
     final stored = await _loadOtp();
     if (stored == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No OTP found. Please request a new OTP.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppSnackBar.showError(context, 'No OTP found. Please request a new OTP.');
       return;
     }
 
@@ -814,32 +902,20 @@ class _ContractorRegistrationScreenState
     final expiry = stored['expiry'] as int;
 
     if (_normalizeForPrefs(_mobileController.text) != targetMobile) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Mobile number mismatch. Request OTP again.'),
-          backgroundColor: Colors.red,
-        ),
+      AppSnackBar.showError(
+        context,
+        'Mobile number mismatch. Request OTP again.',
       );
       return;
     }
 
     if (now > expiry) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('OTP expired. Please request a new OTP.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppSnackBar.showError(context, 'OTP expired. Please request a new OTP.');
       return;
     }
 
     if (enteredOtp != savedOtp) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid OTP. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppSnackBar.showError(context, 'Invalid OTP. Please try again.');
       return;
     }
 
@@ -848,12 +924,33 @@ class _ContractorRegistrationScreenState
     setState(() {
       _isOtpVerified = true;
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Mobile number verified successfully!'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    AppSnackBar.showSuccess(context, 'Mobile number verified successfully!');
+
+    // Check KYC status after successful OTP verification
+    _checkKycStatus();
+  }
+
+  Future<void> _checkKycStatus() async {
+    if (_isCheckingKycStatus) return;
+
+    setState(() => _isCheckingKycStatus = true);
+
+    try {
+      final status = await KycStatusService.getKycStatusByMobile(
+        _mobileController.text.trim(),
+      );
+
+      if (mounted) {
+        setState(() {
+          _kycStatus = status;
+          _isCheckingKycStatus = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isCheckingKycStatus = false);
+      }
+    }
   }
 
   void _onMobileNumberChanged() {
@@ -872,6 +969,7 @@ class _ContractorRegistrationScreenState
         _isOtpVerified = false;
         _showOtpField = false;
         _otpController.clear();
+        _kycStatus = null; // Clear KYC status when mobile changes
       });
     }
 
@@ -886,6 +984,12 @@ class _ContractorRegistrationScreenState
     _debounceTimer = Timer(const Duration(milliseconds: 800), () {
       _checkMobileDuplicateRealTime(mobile);
     });
+  }
+
+  /// Calculate total points for new contractor registration
+  /// All new contractors receive 250 points upon successful registration
+  int _calculateTotalPoints() {
+    return 250;
   }
 
   Timer? _debounceTimer;
@@ -926,6 +1030,28 @@ class _ContractorRegistrationScreenState
   void _submitContractorRegistration() {
     // Basic validations
     if (_isSubmitting) return;
+
+    // Validate contractor type (compulsory)
+    if (_selectedContractorType == null || _selectedContractorType!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a contractor type'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Validate emirates (compulsory)
+    if (_selectedEmirate == null || _selectedEmirate!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select an emirate'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
     final firstNameErr = ContractorService.validateName(
       _firstNameController.text,
@@ -1058,6 +1184,13 @@ class _ContractorRegistrationScreenState
   void _proceedWithRegistration() async {
     final messenger = ScaffoldMessenger.of(context);
 
+    // Calculate total points based on form completeness
+    final totalPoints = _calculateTotalPoints();
+
+    // Get current logged-in user's ID for loginId field
+    final currentUser = AuthManager.currentUser;
+    final loginId = currentUser?.userID ?? currentUser?.emplName ?? 'SYSTEM';
+
     // Build the registration request from form fields
     final req = ContractorRegistrationRequest(
       contractorType: _selectedContractorType,
@@ -1068,21 +1201,42 @@ class _ContractorRegistrationScreenState
         _mobileController.text,
       ),
       address: _addressController.text.trim(),
-      area: '',
-      emirates: _selectedEmirate ?? '',
+
+      // Master location values
+      emirateCode: _selectedEmirateCode,
+      emirateName: _selectedEmirate,
+      areaCode: _selectedAreaCode,
+      areaName: _selectedArea,
+      hasSubArea: _hasSubArea,
+      subAreaCode: _selectedSubAreaCode,
+      subAreaName: _selectedSubArea,
+      poBox: _poBoxController.text.trim(),
+
       profilePhoto: _profilePhotoPath,
       contractorCertificate: _certificatePath,
+      // Emirates ID Details
+      emiratesIdNumber: _emiratesIdController.text.trim(),
+      idName: _nameOfHolderController.text.trim(),
+      dateOfBirth: _dobController.text.trim(),
+      nationality: _nationalityController.text.trim(),
+      companyDetails: _companyDetailsController.text.trim(),
+      issueDate: _issueDateController.text.trim(),
+      expiryDate: _expiryDateController.text.trim(),
+      occupation: _occupationController.text.trim(),
+      // Bank Details
       accountHolderName: _accountHolderController.text.trim(),
       ibanNumber: ContractorService.formatIban(_ibanController.text),
       bankName: _bankNameController.text.trim(),
       branchName: _branchNameController.text.trim(),
       bankAddress: _bankAddressController.text.trim(),
       bankDocument: _bankDocumentPath,
+      // VAT Certificate
       vatCertificate: _vatCertificatePath,
       firmName: _firmNameController.text.trim(),
       vatAddress: _registeredAddressController.text.trim(),
       taxRegistrationNumber: _taxNumberController.text.trim(),
       vatEffectiveDate: _effectiveVatDateController.text.trim(),
+      // Commercial License
       licenseDocument: _commercialLicensePath,
       licenseNumber: _licenseNumberController.text.trim(),
       issuingAuthority: _selectedIssuingAuthority,
@@ -1093,16 +1247,18 @@ class _ContractorRegistrationScreenState
       responsiblePerson: _responsiblePersonController.text.trim(),
       licenseAddress: _tradeLicenseController.text.trim(),
       effectiveDate: _effectiveRegDateController.text.trim(),
+      totalPoints: totalPoints,
+      loginId: loginId,
     );
 
-    // Show registration progress
+    // Show image upload progress
     final loading = SnackBar(
       content: Row(
         children: [
           const SizedBox(width: 4),
           const CircularProgressIndicator(),
           const SizedBox(width: 12),
-          const Expanded(child: Text('Registering contractor...')),
+          const Expanded(child: Text('Uploading images...')),
         ],
       ),
       behavior: SnackBarBehavior.floating,
@@ -1110,6 +1266,32 @@ class _ContractorRegistrationScreenState
     messenger.showSnackBar(loading);
 
     try {
+      // 1. Upload files first
+      final uploadSuccess = await _uploadFilesToServer();
+
+      if (!uploadSuccess && mounted) {
+        messenger.hideCurrentSnackBar();
+        setState(() => _isSubmitting = false);
+        return; // Stop registration if file upload failed
+      }
+
+      // Show registration progress
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(width: 4),
+              CircularProgressIndicator(),
+              SizedBox(width: 12),
+              Expanded(child: Text('Registering contractor...')),
+            ],
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      // 2. Register contractor in DB
       final resp = await ContractorService.registerContractor(req);
       messenger.hideCurrentSnackBar();
 
@@ -1134,44 +1316,54 @@ class _ContractorRegistrationScreenState
           ),
         );
 
-        // Upload files to server after successful registration
-        await _uploadFilesToServer();
+        // Removed: Upload files to server after successful registration
+        // (This is now done before registration)
 
-        // Save autologin data for future automatic login
         final registeredName =
             ('${_firstNameController.text} ${_lastNameController.text}').trim();
-        final userId = _mobileController.text.trim(); // Using mobile as userId
 
-        await AutoLoginService.saveAutoLoginAfterRegistration(
-          userId: userId,
-          userType: 'contractor',
-          userName: registeredName,
-          emirates: _selectedEmirate ?? '',
-          influencerCode: resp.influencerCode,
-          additionalData: {
-            'mobileNumber': ContractorService.formatMobileNumber(
-              _mobileController.text,
-            ),
-            'contractorType': _selectedContractorType ?? '',
-            'firmName': _firmNameController.text.trim(),
-            'licenseNumber': _licenseNumberController.text.trim(),
-          },
-        );
+        // For employee registration, show dialog instead of navigating
+        if (widget.isEmployeeRegistration) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            _showRegistrationCompletedDialog(registeredName);
+          }
+        } else {
+          // Save autologin data for future automatic login (only for self-registration)
+          final userId = _mobileController.text
+              .trim(); // Using mobile as userId
 
-        // Navigate to contractor home after short delay so user sees the success snackbar
-        await Future.delayed(const Duration(seconds: 1));
-        if (mounted) {
-          // Pass isNewRegistration so home screen can show congratulations dialog
-          context.go(
-            RouteNames.contractorHome,
-            extra: {
-              'isNewRegistration': true,
-              'userRole': 'contractor',
-              'registeredName': registeredName,
-              'emirates': _selectedEmirate ?? '',
-              'influencerCode': resp.influencerCode,
+          await AutoLoginService.saveAutoLoginAfterRegistration(
+            userId: userId,
+            userType: 'contractor',
+            userName: registeredName,
+            emirates: _selectedEmirate ?? '',
+            influencerCode: resp.influencerCode,
+            additionalData: {
+              'mobileNumber': ContractorService.formatMobileNumber(
+                _mobileController.text,
+              ),
+              'contractorType': _selectedContractorType ?? '',
+              'firmName': _firmNameController.text.trim(),
+              'licenseNumber': _licenseNumberController.text.trim(),
             },
           );
+
+          // Navigate to contractor home after short delay so user sees the success snackbar
+          await Future.delayed(const Duration(seconds: 1));
+          if (mounted) {
+            // Pass isNewRegistration so home screen can show congratulations dialog
+            context.go(
+              RouteNames.contractorHome,
+              extra: {
+                'isNewRegistration': true,
+                'userRole': 'contractor',
+                'registeredName': registeredName,
+                'emirates': _selectedEmirate ?? '',
+                'influencerCode': resp.influencerCode,
+              },
+            );
+          }
         }
       } else {
         messenger.showSnackBar(
@@ -1198,6 +1390,149 @@ class _ContractorRegistrationScreenState
     }
   }
 
+  Future<void> _loadEmirates() async {
+    try {
+      final list = await ContractorService.getEmiratesList();
+      setState(() => _emiratesList = list);
+    } catch (e) {
+      // ignore silently; user can still type/select
+      print('Failed to load emirates: ${e.toString()}');
+    }
+  }
+
+  Future<void> _fetchAreasForEmirate(String emirateCode) async {
+    try {
+      _areasList = await ContractorService.getAreasListByEmirate(emirateCode);
+      setState(() {
+        _subAreasList = [];
+        _selectedArea = null;
+        _selectedAreaCode = null;
+        _selectedSubArea = null;
+        _selectedSubAreaCode = null;
+        _hasSubArea = false;
+        _poBoxController.text = '';
+      });
+    } catch (e) {
+      print('Failed to load areas: ${e.toString()}');
+      setState(() => _areasList = []);
+    }
+  }
+
+  Future<void> _fetchSubAreasForArea(String areaCode) async {
+    try {
+      final res = await ContractorService.getSubAreasListByArea(areaCode);
+      setState(() {
+        _hasSubArea = res['hasSubArea'] == true;
+        _subAreasList = (res['data'] as List<SubAreaItem>?) ?? [];
+        if (!_hasSubArea) {
+          // find poBox from selected area
+          final area = _areasList.firstWhere(
+            (a) => a.code == areaCode,
+            orElse: () => AreaItem(code: '', name: '', poBox: ''),
+          );
+          _poBoxController.text = area.poBox;
+        } else {
+          _poBoxController.text = '';
+        }
+      });
+    } catch (e) {
+      print('Failed to load subareas: ${e.toString()}');
+      setState(() {
+        _subAreasList = [];
+        _hasSubArea = false;
+      });
+    }
+  }
+
+  void _showRegistrationCompletedDialog(String contractorName) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          contentPadding: EdgeInsets.zero,
+          content: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFF8FAFC), Colors.white],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle_rounded,
+                    color: Color(0xFF10B981),
+                    size: 64,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Registration Completed!',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1F2937),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Contractor "$contractorName" has been successfully registered.',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: Colors.grey[600],
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop(); // Close dialog
+                      context.pop(); // Go back to home screen
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E3A8A),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Done',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildMobileNumberField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1216,14 +1551,16 @@ class _ContractorRegistrationScreenState
         TextFormField(
           controller: _mobileController,
           keyboardType: TextInputType.phone,
+          inputFormatters: UaePhoneUtils.inputFormatters(),
           decoration: InputDecoration(
-            hintText: 'Mobile Number',
+            hintText: UaePhoneUtils.localHint,
             hintStyle: TextStyle(color: Colors.grey[400], fontSize: 14),
             prefixIcon: Icon(
               Icons.phone_outlined,
               color: Colors.grey[600],
               size: 20,
             ),
+            prefixText: UaePhoneUtils.countryPrefix,
             suffixIcon: _isCheckingMobile
                 ? Padding(
                     padding: const EdgeInsets.all(12.0),
@@ -1311,6 +1648,7 @@ class _ContractorRegistrationScreenState
           icon: Icons.business_center_outlined,
           items: const ['Maintenance Contractor', 'Petty contractors'],
           value: _selectedContractorType,
+          isRequired: true,
           onChanged: (String? value) {
             setState(() {
               _selectedContractorType = value;
@@ -1354,21 +1692,76 @@ class _ContractorRegistrationScreenState
         ModernDropdown(
           label: 'Emirates',
           icon: Icons.public_outlined,
-          items: const [
-            'Dubai',
-            'Abu Dhabi',
-            'Sharjah',
-            'Ajman',
-            'Umm Al Quwain',
-            'Ras Al Khaimah',
-            'Fujairah',
-          ],
+          items: _emiratesList.map((e) => e.name).toList(),
           value: _selectedEmirate,
-          onChanged: (String? value) {
+          isRequired: true,
+          onChanged: (String? value) async {
             setState(() {
               _selectedEmirate = value;
+              _selectedEmirateCode = _emiratesList
+                  .firstWhere(
+                    (e) => e.name == value,
+                    orElse: () => EmirateItem(code: '', name: ''),
+                  )
+                  .code;
             });
+            if (_selectedEmirateCode != null &&
+                _selectedEmirateCode!.isNotEmpty) {
+              await _fetchAreasForEmirate(_selectedEmirateCode!);
+            }
           },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        ModernDropdown(
+          label: 'Area',
+          icon: Icons.location_city_outlined,
+          items: _areasList.map((a) => a.name).toList(),
+          value: _selectedArea,
+          isRequired: true,
+          onChanged: (String? value) async {
+            setState(() {
+              _selectedArea = value;
+              final area = _areasList.firstWhere(
+                (a) => a.name == value,
+                orElse: () => AreaItem(code: '', name: '', poBox: ''),
+              );
+              _selectedAreaCode = area.code;
+            });
+            if (_selectedAreaCode != null && _selectedAreaCode!.isNotEmpty) {
+              await _fetchSubAreasForArea(_selectedAreaCode!);
+            }
+          },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        if (_selectedAreaCode != null &&
+            _selectedAreaCode!.isNotEmpty &&
+            _hasSubArea)
+          ModernDropdown(
+            label: 'Sub Area',
+            icon: Icons.map_outlined,
+            items: _subAreasList.map((s) => s.name).toList(),
+            value: _selectedSubArea,
+            isRequired: false,
+            onChanged: (String? value) {
+              setState(() {
+                _selectedSubArea = value;
+                final sub = _subAreasList.firstWhere(
+                  (s) => s.name == value,
+                  orElse: () => SubAreaItem(code: '', name: '', poBox: ''),
+                );
+                _selectedSubAreaCode = sub.code;
+                // If sub area selected, set PoBox from sub-area
+                _poBoxController.text = sub.poBox;
+              });
+            },
+          ),
+        const ResponsiveSpacing(mobile: 12),
+        ResponsiveTextField(
+          label: 'PoBox',
+          icon: Icons.mail_outline,
+          controller: _poBoxController,
+          isRequired: false,
+          readOnly: true,
         ),
         const ResponsiveSpacing(mobile: 20),
         _buildPhotoUploadSection(),
@@ -2299,7 +2692,7 @@ class _ContractorRegistrationScreenState
     );
   }
 
-  // OCR processing for Emirates ID with retry mechanism
+  // OCR processing for Emirates ID using Gemini first, ML Kit as fallback
   Future<void> _processEmiratesIdOcrWithRetry() async {
     if (_emiratesIdFrontFile == null || _emiratesIdBackFile == null) return;
 
@@ -2308,25 +2701,28 @@ class _ContractorRegistrationScreenState
     });
 
     try {
-      await _ocrService.processEmiratesIdOcrWithRetry(
+      debugPrint(
+        '[ContractorRegistration] Using Hybrid OCR for Emirates ID (Gemini with ML Kit fallback)',
+      );
+
+      final result = await _hybridOcrService.extractEmiratesIdFields(
         frontImagePath: _emiratesIdFrontFile!,
         backImagePath: _emiratesIdBackFile!,
-        onFieldsExtracted: (result) {
-          _updateFieldsFromResult(result);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Emirates ID fields autofilled')),
-            );
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(error)));
-          }
-        },
       );
+
+      _updateFieldsFromResult(result);
+
+      if (mounted) {
+        AppSnackBar.showSuccess(context, 'Emirates ID fields autofilled');
+      }
+    } catch (e) {
+      debugPrint('Error in Emirates ID OCR: $e');
+      if (mounted) {
+        AppSnackBar.showError(
+          context,
+          'Error processing Emirates ID: ${e.toString()}',
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -2391,7 +2787,7 @@ class _ContractorRegistrationScreenState
     }
   }
 
-  // OCR processing for bank document with retry mechanism
+  // OCR processing for bank document using Gemini first, ML Kit as fallback
   Future<void> _processBankDocumentOcr() async {
     if (_bankDocumentPath == null) return;
 
@@ -2400,24 +2796,27 @@ class _ContractorRegistrationScreenState
     });
 
     try {
-      await _bankOcrService.processBankDetailsOcrWithRetry(
-        bankDocumentPath: _bankDocumentPath!,
-        onFieldsExtracted: (result) {
-          _updateBankFieldsFromResult(result);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Bank details autofilled')),
-            );
-          }
-        },
-        onError: (error) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(error)));
-          }
-        },
+      debugPrint(
+        '[ContractorRegistration] Using Hybrid OCR for Bank Details (Gemini with ML Kit fallback)',
       );
+
+      final result = await _hybridOcrService.extractBankDetailsFields(
+        bankDocumentPath: _bankDocumentPath!,
+      );
+
+      _updateBankFieldsFromResult(result);
+
+      if (mounted) {
+        AppSnackBar.showSuccess(context, 'Bank details autofilled with AI');
+      }
+    } catch (e) {
+      debugPrint('Error in Bank Details OCR: $e');
+      if (mounted) {
+        AppSnackBar.showError(
+          context,
+          'Error processing bank document: ${e.toString()}',
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -2427,7 +2826,7 @@ class _ContractorRegistrationScreenState
     }
   }
 
-  // OCR processing for VAT certificate with retry mechanism
+  // OCR processing for VAT certificate using Hybrid service (Gemini with ML Kit fallback)
   Future<void> _processVatCertificateOcr() async {
     if (_vatCertificatePath == null) return;
 
@@ -2436,27 +2835,30 @@ class _ContractorRegistrationScreenState
     });
 
     try {
-      await _vatOcrService.processVatCertificateOcrWithRetry(
-        vatCertificatePath: _vatCertificatePath!,
-        onFieldsExtracted: (result) {
-          _updateVatFieldsFromResult(result);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('VAT certificate details autofilled'),
-              ),
-            );
-          }
-        },
-        onError: (error) {
-          print('VAT OCR Error: ' + error);
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(error)));
-          }
-        },
+      debugPrint(
+        '[ContractorRegistration] Using Hybrid OCR for VAT Certificate (Gemini with ML Kit fallback)',
       );
+
+      final result = await _hybridOcrService.extractVatCertificateFields(
+        vatCertificatePath: _vatCertificatePath!,
+      );
+
+      _updateVatFieldsFromResult(result);
+
+      if (mounted) {
+        AppSnackBar.showSuccess(
+          context,
+          'VAT certificate details autofilled with AI',
+        );
+      }
+    } catch (e) {
+      debugPrint('Error in VAT Certificate OCR: $e');
+      if (mounted) {
+        AppSnackBar.showError(
+          context,
+          'Error processing VAT certificate: ${e.toString()}',
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -2473,52 +2875,70 @@ class _ContractorRegistrationScreenState
     setState(() => _isProcessingCommercialLicenceOcr = true);
 
     try {
-      // Define your OCR API URL here or get it from configuration
-      const String ocrApiUrl =
-          'https://api.surepass.io/api/v1/ocr/commercial-license';
-
-      final result = await CommercialLicenseOcrService.processDocument(
-        ocrApiUrl,
-        _commercialLicensePath!,
+      debugPrint(
+        '[ContractorRegistration] Using Hybrid OCR for Commercial License (Gemini with ML Kit fallback)',
       );
 
-      if (result != null && result.containsKey('data')) {
-        final data = result['data'] as Map<String, dynamic>;
+      final result = await _hybridOcrService.extractCommercialLicenseFields(
+        commercialLicensePath: _commercialLicensePath!,
+      );
 
-        // Update form fields with extracted data
-        setState(() {
-          _licenseNumberController.text = data['license_number'] ?? '';
-          _issuingAuthorityController.text = data['issuing_authority'] ?? '';
-          _licenseTypeController.text = data['license_type'] ?? '';
-          _tradeNameController.text = data['trade_name'] ?? '';
-          _responsiblePersonController.text = data['responsible_person'] ?? '';
-          _establishmentDateController.text = data['establishment_date'] ?? '';
-          _licenseExpiryDateController.text = data['expiry_date'] ?? '';
-          _effectiveRegDateController.text =
-              data['effective_registration_date'] ?? '';
-        });
+      // Update form fields with extracted data
+      setState(() {
+        if (result['licenseNumber'] != null &&
+            result['licenseNumber']!.isNotEmpty) {
+          _licenseNumberController.text = result['licenseNumber']!;
+        }
+        if (result['issuingAuthority'] != null &&
+            result['issuingAuthority']!.isNotEmpty) {
+          _issuingAuthorityController.text = result['issuingAuthority']!;
+        }
+        if (result['licenseType'] != null &&
+            result['licenseType']!.isNotEmpty) {
+          _licenseTypeController.text = result['licenseType']!;
+        }
+        if (result['tradeName'] != null && result['tradeName']!.isNotEmpty) {
+          _tradeNameController.text = result['tradeName']!;
+        }
+        if (result['responsiblePerson'] != null &&
+            result['responsiblePerson']!.isNotEmpty) {
+          _responsiblePersonController.text = result['responsiblePerson']!;
+        }
+        if (result['establishmentDate'] != null &&
+            result['establishmentDate']!.isNotEmpty) {
+          _establishmentDateController.text = result['establishmentDate']!;
+        }
+        if (result['expiryDate'] != null && result['expiryDate']!.isNotEmpty) {
+          _licenseExpiryDateController.text = result['expiryDate']!;
+        }
+        if (result['effectiveDate'] != null &&
+            result['effectiveDate']!.isNotEmpty) {
+          _effectiveRegDateController.text = result['effectiveDate']!;
+        }
+        if (result['licenseAddress'] != null &&
+            result['licenseAddress']!.isNotEmpty) {
+          _tradeLicenseController.text = result['licenseAddress']!;
+        }
+      });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Commercial license processed successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to process commercial license'),
-            backgroundColor: Colors.red,
-          ),
+      if (mounted) {
+        AppSnackBar.showSuccess(
+          context,
+          'Commercial license processed successfully with AI',
         );
       }
     } catch (e) {
-      print('Error in _processCommercialLicenceOcr: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      debugPrint('Error in Commercial License OCR: $e');
+      if (mounted) {
+        AppSnackBar.showError(
+          context,
+          'Error processing commercial license: ${e.toString()}',
+        );
+      }
     } finally {
-      setState(() => _isProcessingCommercialLicenceOcr = false);
+      if (mounted) {
+        setState(() => _isProcessingCommercialLicenceOcr = false);
+      }
     }
   }
 
@@ -2603,111 +3023,110 @@ class _ContractorRegistrationScreenState
     // We will leave _issuingAuthorityController for manual entry.
   }
 
-  /// Upload all selected files to server after successful registration
-  Future<void> _uploadFilesToServer() async {
+  /// Upload all selected files to server before registration
+  /// Returns [true] if all files uploaded successfully, [false] if any failed or none selected
+  Future<bool> _uploadFilesToServer() async {
     print('=== Starting contractor file upload to server ===');
 
-    final personName = _getFullName();
-    final mobileNumber = _getMobileNumber();
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final mobile = _mobileController.text.trim();
 
-    print('Person Name: $personName');
-    print('Mobile Number: $mobileNumber');
+    print('Name: $firstName $lastName');
+    print('Mobile: $mobile');
 
-    if (personName.isEmpty || mobileNumber.isEmpty) {
+    if (firstName.isEmpty || lastName.isEmpty || mobile.isEmpty) {
       print('Skipping upload - name or mobile is empty');
-      return; // Skip upload if name or mobile is empty
+      return true; // Return true as there's technically no failure, but this shouldn't happen
     }
 
-    final filesToUpload = <String, String?>{
-      'Profile Photo': _profilePhotoPath,
-      'Emirates ID Front': _emiratesIdFrontFile,
-      'Emirates ID Back': _emiratesIdBackFile,
-      'Contractor Certificate': _certificatePath,
-      'VAT Certificate': _vatCertificatePath,
-      'Commercial License': _commercialLicensePath,
-      'Bank Document': _bankDocumentPath,
+    // Map file paths to document types
+    final filePathsByType = <String, String>{
+      if (_profilePhotoPath != null && _profilePhotoPath!.isNotEmpty)
+        DocumentType.profilePhoto: _profilePhotoPath!,
+      if (_emiratesIdFrontFile != null && _emiratesIdFrontFile!.isNotEmpty)
+        DocumentType.emiratesIdFront: _emiratesIdFrontFile!,
+      if (_emiratesIdBackFile != null && _emiratesIdBackFile!.isNotEmpty)
+        DocumentType.emiratesIdBack: _emiratesIdBackFile!,
+      if (_certificatePath != null && _certificatePath!.isNotEmpty)
+        DocumentType.contractorCertificate: _certificatePath!,
+      if (_vatCertificatePath != null && _vatCertificatePath!.isNotEmpty)
+        DocumentType.vatCertificate: _vatCertificatePath!,
+      if (_commercialLicensePath != null && _commercialLicensePath!.isNotEmpty)
+        DocumentType.commercialLicense: _commercialLicensePath!,
+      if (_bankDocumentPath != null && _bankDocumentPath!.isNotEmpty)
+        DocumentType.bankDocument: _bankDocumentPath!,
     };
 
-    print('Files to upload: $filesToUpload');
-
-    for (final entry in filesToUpload.entries) {
-      final fileName = entry.key;
-      final filePath = entry.value;
-
-      print('Processing $fileName: $filePath');
-
-      if (filePath != null && filePath.isNotEmpty) {
-        try {
-          final file = File(filePath);
-          final fileExists = await file.exists();
-          print('File exists: $fileExists');
-
-          if (fileExists) {
-            print('Uploading $fileName to server...');
-            final response = await ImageUploadService.uploadImage(
-              file: file,
-              personName: personName,
-              mobileNumber: mobileNumber,
-            );
-
-            print(
-              '$fileName uploaded successfully with key: ${response.data.attFilKy}',
-            );
-
-            // Show success message to user
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('$fileName uploaded successfully!'),
-                  backgroundColor: Colors.green,
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-          } else {
-            print('File does not exist: $filePath');
-          }
-        } catch (e) {
-          print('Failed to upload $fileName: $e');
-
-          // Show error message to user
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Failed to upload $fileName: $e'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-          // Continue with other files even if one fails
-        }
-      } else {
-        print('$fileName: No file selected');
-      }
+    if (filePathsByType.isEmpty) {
+      print('No files to upload');
+      return true; // No files to upload is fine
     }
 
-    print('=== Contractor file upload process completed ===');
-  }
+    print('Files to upload: ${filePathsByType.keys.toList()}');
 
-  /// Helper method to get full name from form fields
-  String _getFullName() {
-    final firstName = _firstNameController.text.trim();
-    final middleName = _middleNameController.text.trim();
-    final lastName = _lastNameController.text.trim();
+    // Get current user ID for createId
+    final currentUser = AuthManager.currentUser;
+    final createId = currentUser?.userID ?? currentUser?.emplName ?? 'SYSTEM';
 
-    final nameParts = [
-      firstName,
-      middleName,
-      lastName,
-    ].where((part) => part.isNotEmpty).toList();
+    // Upload all files in batch
+    final results = await ImageUploadService.uploadMultipleImages(
+      filePathsByType: filePathsByType,
+      firstName: firstName,
+      lastName: lastName,
+      mobile: mobile,
+      createId: createId,
+    );
 
-    return nameParts.join(' ');
-  }
+    // Show results
+    int successCount = 0;
+    int failCount = 0;
+    String firstError = '';
 
-  /// Helper method to get mobile number from form field
-  String _getMobileNumber() {
-    return _mobileController.text.trim();
+    results.forEach((docType, response) {
+      if (response.success) {
+        successCount++;
+        print('✅ $docType uploaded: ${response.attFilKy}');
+      } else {
+        failCount++;
+        if (firstError.isEmpty) {
+          firstError = response.message;
+        }
+        print('❌ $docType failed: ${response.message}');
+      }
+    });
+
+    // Handle failure
+    if (failCount > 0 && mounted) {
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red),
+              SizedBox(width: 8),
+              Text('Upload Failed'),
+            ],
+          ),
+          content: Text(
+            'Failed to upload $failCount document(s).\n\nDetails: $firstError\n\nPlease check your internet connection and try again.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      print(
+        '=== File upload completed with errors: $successCount success, $failCount failed ===',
+      );
+      return false; // Indicating upload failure to prevent DB registration
+    }
+
+    print('=== File upload completed successfully: $successCount success ===');
+    return true; // Success
   }
 
   /// Build mobile verification section (Step 1)
@@ -2894,6 +3313,40 @@ class _ContractorRegistrationScreenState
             ),
           ),
         ],
+        if (_isCheckingKycStatus) ...[
+          const ResponsiveSpacing(mobile: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Checking registration status...',
+                    style: TextStyle(
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (_kycStatus != null && _kycStatus!.success) ...[
+          const ResponsiveSpacing(mobile: 20),
+          KycStatusWidget(status: _kycStatus!, onRefresh: _checkKycStatus),
+        ],
       ],
     );
   }
@@ -3039,11 +3492,10 @@ class CommercialLicenceOcrService {
     }
   }
 
-  // Recognize text from an image
   Future<String> recognizeText(File imageFile) async {
     final processedImage = await preprocessImage(imageFile);
     final inputImage = InputImage.fromFilePath(processedImage.path);
-    final textRecognizer = GoogleMlKit.vision.textRecognizer();
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
     try {
       final recognisedText = await textRecognizer.processImage(inputImage);
       final buffer = StringBuffer();
@@ -3055,7 +3507,7 @@ class CommercialLicenceOcrService {
       }
       return buffer.toString();
     } finally {
-      await textRecognizer.close();
+      textRecognizer.close();
     }
   }
 

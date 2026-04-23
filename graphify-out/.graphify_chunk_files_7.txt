@@ -1,0 +1,3 @@
+lib\features\user_management\FIELD_MAPPING.md
+lib\features\user_management\README.md
+lib\features\user_management\TROUBLESHOOTING.md

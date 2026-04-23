@@ -1,0 +1,38 @@
+{
+  "nodes": [
+    {"id": "context_extension_contextx", "label": "Context Extension", "file_type": "code", "source_file": "lib/core/extensions/context_extension.dart"},
+    {"id": "string_extension_stringx", "label": "String Extension", "file_type": "code", "source_file": "lib/core/extensions/string_extension.dart"},
+    {"id": "activity_models_activity", "label": "Activity Model", "file_type": "code", "source_file": "lib/core/models/activity_models.dart"},
+    {"id": "admin_user_models_adminuser", "label": "Admin User Model", "file_type": "code", "source_file": "lib/core/models/admin_user_models.dart"},
+    {"id": "approval_models_approval", "label": "Approval Model", "file_type": "code", "source_file": "lib/core/models/approval_models.dart"},
+    {"id": "auth_models_auth", "label": "Auth Models", "file_type": "code", "source_file": "lib/core/models/auth_models.dart"},
+    {"id": "contractor_models_contractor", "label": "Contractor Models", "file_type": "code", "source_file": "lib/core/models/contractor_models.dart"},
+    {"id": "dashboard_models_dashboard", "label": "Dashboard Data Model", "file_type": "code", "source_file": "lib/core/models/dashboard_models.dart"},
+    {"id": "dsr_models_dsr", "label": "DSR (Daily Sales Report) Model", "file_type": "code", "source_file": "lib/core/models/dsr_models.dart"},
+    {"id": "kyc_status_models_kyc", "label": "KYC Status Tracking", "file_type": "code", "source_file": "lib/core/models/kyc_status_models.dart"},
+    {"id": "market_mapping_models_market", "label": "Market Mapping Model", "file_type": "code", "source_file": "lib/core/models/market_mapping_models.dart"},
+    {"id": "painter_models_painter", "label": "Painter Identity Model", "file_type": "code", "source_file": "lib/core/models/painter_models.dart"},
+    {"id": "product_journey_models_product", "label": "Product Journey & Batch Tracking", "file_type": "code", "source_file": "lib/core/models/product_journey_models.dart"}
+  ],
+  "edges": [
+    {"source": "activity_models_activity", "target": "dsr_models_dsr", "relation": "conceptually_related_to", "confidence": "INFERRED", "confidence_score": 0.85, "source_file": "lib/core/models/activity_models.dart"},
+    {"source": "approval_models_approval", "target": "kyc_status_models_kyc", "relation": "references", "confidence": "INFERRED", "confidence_score": 0.9, "source_file": "lib/core/models/approval_models.dart"},
+    {"source": "product_journey_models_product", "target": "painter_models_painter", "relation": "references", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/core/models/product_journey_models.dart"},
+    {"source": "painter_models_painter", "target": "contractor_models_contractor", "relation": "semantically_similar_to", "confidence": "INFERRED", "confidence_score": 0.7, "source_file": "lib/core/models/painter_models.dart"},
+    {"source": "dashboard_models_dashboard", "target": "dsr_models_dsr", "relation": "shares_data_with", "confidence": "INFERRED", "confidence_score": 0.8, "source_file": "lib/core/models/dashboard_models.dart"},
+    {"source": "context_extension_contextx", "target": "snackbar_utils", "relation": "calls", "confidence": "INFERRED", "confidence_score": 0.95, "source_file": "lib/core/extensions/context_extension.dart"}
+  ],
+  "hyperedges": [
+    {
+      "id": "stakeholder_models",
+      "label": "User & Stakeholder Entities",
+      "nodes": ["admin_user_models_adminuser", "contractor_models_contractor", "painter_models_painter"],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "lib/core/models"
+    }
+  ],
+  "input_tokens": 5800,
+  "output_tokens": 1200
+}

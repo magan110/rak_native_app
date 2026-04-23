@@ -6,7 +6,9 @@ import 'dart:math' as math;
 // Import services for auto-login functionality
 import '../../../../../core/services/storage_service.dart';
 import '../../../../../core/services/autologin_service.dart';
+import '../../../../../core/services/auth_service.dart';
 import '../../../../../core/services/maintenance_service.dart';
+import '../../../../../core/services/location_service.dart';
 import '../../../../../shared/widgets/combined_logo_widget.dart';
 import '../../../../../shared/widgets/maintenance_dialog.dart';
 
@@ -78,6 +80,9 @@ class _SplashScreenState extends State<SplashScreen>
     _scaleController.forward();
     _slideController.forward();
     _particleController.repeat();
+
+    // Request location permission immediately
+    LocationService.requestLocationPermission();
 
     // Check for auto-login after animations start
     _checkAutoLoginAndNavigate();
@@ -227,7 +232,12 @@ class _SplashScreenState extends State<SplashScreen>
               },
             );
           } else if (autoLoginResult.userType == 'general') {
-            // For admin/general users
+            // For employee/general users — re-authenticate via server to get fresh deptCode etc.
+            final serverResult = await AuthService.autoLogin();
+            if (serverResult['success'] == true) {
+              final userData = serverResult['data'];
+              AuthManager.setUser(userData);
+            }
             context.go('/home');
           } else {
             // Unknown user type, go to login

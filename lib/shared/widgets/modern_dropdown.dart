@@ -26,13 +26,13 @@ class ModernDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final IconData? actualIcon = icon ?? prefixIcon;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textColor = colorScheme.onSurface;
-    final hintColor = colorScheme.onSurface.withOpacity(0.6);
-    final iconColor = colorScheme.onSurface.withOpacity(0.7);
-    final containerColor = colorScheme.surface;
-    final borderColor = colorScheme.onSurface.withOpacity(0.12);
+    // Force light theme colors
+    const textColor = Colors.black87;
+    final hintColor = Colors.grey.shade600;
+    final iconColor = Colors.grey.shade700;
+    const containerColor = Colors.white;
+    final borderColor = Colors.grey.shade300;
+    const dropdownColor = Colors.white;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -60,6 +60,7 @@ class ModernDropdown extends StatelessWidget {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: DropdownButtonFormField<String>(
+            value: value,
             hint: Text(
               hint ?? 'Select $label',
               style: TextStyle(
@@ -83,6 +84,7 @@ class ModernDropdown extends StatelessWidget {
               ),
             ),
             isExpanded: true,
+            menuMaxHeight: 300,
             items: items.map((String item) {
               return DropdownMenuItem<String>(
                 value: item,
@@ -96,13 +98,14 @@ class ModernDropdown extends StatelessWidget {
                       desktop: 16,
                     ),
                     color: textColor,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               );
             }).toList(),
             onChanged: onChanged,
             icon: Icon(Icons.keyboard_arrow_down, color: iconColor),
-            dropdownColor: colorScheme.surface,
+            dropdownColor: dropdownColor,
             style: TextStyle(
               fontSize: ResponsiveUtils.getResponsiveFontSize(
                 context,
@@ -111,7 +114,25 @@ class ModernDropdown extends StatelessWidget {
                 desktop: 16,
               ),
               color: textColor,
+              fontWeight: FontWeight.w500,
             ),
+            selectedItemBuilder: (BuildContext context) {
+              return items.map<Widget>((String item) {
+                return Text(
+                  item,
+                  style: TextStyle(
+                    fontSize: ResponsiveUtils.getResponsiveFontSize(
+                      context,
+                      mobile: 14,
+                      tablet: 15,
+                      desktop: 16,
+                    ),
+                    color: textColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                );
+              }).toList();
+            },
           ),
         ),
       ],

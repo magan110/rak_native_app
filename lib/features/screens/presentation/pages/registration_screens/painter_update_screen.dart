@@ -5,8 +5,10 @@ import 'package:go_router/go_router.dart';
 import 'package:rak_app/core/routes/route_names.dart';
 
 import '../../../../../core/services/painter_service.dart';
+import '../../../../../core/services/auth_service.dart';
 import '../../../../../core/models/painter_models.dart';
 import '../../../../../core/models/user_profile_models.dart';
+import '../../../../../core/models/auth_models.dart';
 import '../../../../../shared/widgets/custom_back_button.dart';
 import '../../../../../shared/widgets/responsive_widgets.dart';
 import '../../../../../shared/widgets/modern_dropdown.dart';
@@ -18,7 +20,7 @@ class PainterUpdateScreen extends StatefulWidget {
   final String? completionMessage;
 
   const PainterUpdateScreen({
-    super.key, 
+    super.key,
     required this.mobileNumber,
     this.userProfile,
     this.missingFields,
@@ -65,8 +67,17 @@ class _PainterUpdateScreenState extends State<PainterUpdateScreen>
   // State flags
   bool _isSubmitting = false;
   bool _isLoading = true;
-
   String? _selectedEmirate;
+  String? _selectedEmirateCode;
+  List<EmirateItem> _emiratesList = [];
+  List<AreaItem> _areasList = [];
+  List<SubAreaItem> _subAreasList = [];
+  String? _selectedAreaCode;
+  String? _selectedAreaName;
+  String? _selectedSubAreaCode;
+  String? _selectedSubAreaName;
+  bool _hasSubArea = false;
+  final TextEditingController _poBoxController = TextEditingController();
 
   @override
   void initState() {
@@ -117,6 +128,7 @@ class _PainterUpdateScreenState extends State<PainterUpdateScreen>
     _lastNameController.dispose();
     _mobileController.dispose();
     _addressController.dispose();
+    _poBoxController.dispose();
     _emiratesIdController.dispose();
     _nameOfHolderController.dispose();
     _dobController.dispose();
@@ -135,47 +147,127 @@ class _PainterUpdateScreenState extends State<PainterUpdateScreen>
 
   Future<void> _loadExistingData() async {
     try {
-      final response = await PainterService.getPainterDetails(
-        widget.mobileNumber,
-      );
+      // 1. Load master emirates first
+      try {
+        _emiratesList = await PainterService.getEmiratesList();
+      } catch (_) {
+        _emiratesList = [];
+      }
 
-      if (response.success && response.data != null) {
-        final data = response.data!;
-        setState(() {
-          _firstNameController.text = data.firstName ?? '';
-          _middleNameController.text = data.middleName ?? '';
-          _lastNameController.text = data.lastName ?? '';
-          _addressController.text = data.address ?? '';
-          _emiratesIdController.text = data.emiratesIdNumber ?? '';
-          _nameOfHolderController.text = data.idName ?? '';
-          _dobController.text = data.dateOfBirth ?? '';
-          _nationalityController.text = data.nationality ?? '';
-          _companyDetailsController.text = data.companyDetails ?? '';
-          _issueDateController.text = data.issueDate ?? '';
-          _expiryDateController.text = data.expiryDate ?? '';
-          _occupationController.text = data.occupation ?? '';
-          _accountHolderController.text = data.accountHolderName ?? '';
-          _ibanController.text = data.ibanNumber ?? '';
-          _bankNameController.text = data.bankName ?? '';
-          _branchNameController.text = data.branchName ?? '';
-          _bankAddressController.text = data.bankAddress ?? '';
-          _selectedEmirate = data.emirates;
-          // Note: reference field can be added to UI if needed
-          _isLoading = false;
-        });
-      } else {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              response.message.isNotEmpty
-                  ? response.message
-                  : 'Failed to load data',
-            ),
-            backgroundColor: Colors.red,
-          ),
+      // 2. If userProfile contains inflCode, prefer fetching full details from backend
+      final inflCode = widget.userProfile?.inflCode;
+      PainterDetails? details;
+
+      if (inflCode != null && inflCode.isNotEmpty) {
+        final resp = await PainterService.getPainterDetailsByCode(inflCode);
+        if (resp.success && resp.data != null) {
+          details = resp.data!;
+        }
+      }
+
+      // 3. If backend details not available, fall back to widget.userProfile
+      if (details == null && widget.userProfile != null) {
+        final p = widget.userProfile!;
+        details = PainterDetails(
+          firstName: p.firstName,
+          middleName: p.middleName,
+          lastName: p.lastName,
+          mobileNumber: p.mobileNumber,
+          address: p.address,
+          emirates: p.emirates,
+          area: p.areaCode, // areaCode may be present here
+          emiratesIdNumber: p.emiratesIdNumber,
+          idName: p.idName,
+          dateOfBirth: p.dateOfBirth,
+          nationality: p.nationality,
+          companyDetails: p.companyDetails,
+          issueDate: p.issueDate,
+          expiryDate: p.expiryDate,
+          occupation: p.occupation,
+          accountHolderName: p.accountHolderName,
+          ibanNumber: p.ibanNumber,
+          bankName: p.bankName,
+          branchName: p.branchName,
+          bankAddress: p.bankAddress,
         );
       }
+
+      // 4. Populate UI fields if we have details
+      if (details != null) {
+        setState(() {
+          _firstNameController.text = details!.firstName ?? '';
+          _middleNameController.text = details!.middleName ?? '';
+          _lastNameController.text = details!.lastName ?? '';
+          _addressController.text = details!.address ?? '';
+          _emiratesIdController.text = details!.emiratesIdNumber ?? '';
+          _nameOfHolderController.text = details!.idName ?? '';
+          _dobController.text = details!.dateOfBirth ?? '';
+          _nationalityController.text = details!.nationality ?? '';
+          _companyDetailsController.text = details!.companyDetails ?? '';
+          _issueDateController.text = details!.issueDate ?? '';
+          _expiryDateController.text = details!.expiryDate ?? '';
+          _occupationController.text = details!.occupation ?? '';
+          _accountHolderController.text = details!.accountHolderName ?? '';
+          _ibanController.text = details!.ibanNumber ?? '';
+          _bankNameController.text = details!.bankName ?? '';
+          _branchNameController.text = details!.branchName ?? '';
+          _bankAddressController.text = details!.bankAddress ?? '';
+          _selectedEmirate = details!.emirates;
+        });
+
+        // 5. Try to resolve emirate code from loaded emirates
+        if (_selectedEmirate != null && _emiratesList.isNotEmpty) {
+          final foundEmirate = _emiratesList.firstWhere(
+            (e) => e.name == _selectedEmirate || e.id == _selectedEmirate,
+            orElse: () => EmirateItem(id: '', name: ''),
+          );
+          if (foundEmirate.id.isNotEmpty) {
+            _selectedEmirateCode = foundEmirate.id;
+            try {
+              _areasList = await PainterService.getAreasListByEmirate(
+                _selectedEmirateCode!,
+              );
+            } catch (_) {
+              _areasList = [];
+            }
+          }
+        }
+
+        // 6. Resolve area/sub-area selection using details.area (try code then name)
+        final areaValue = details.area;
+        if (areaValue != null &&
+            areaValue.isNotEmpty &&
+            _areasList.isNotEmpty) {
+          final foundArea = _areasList.firstWhere(
+            (a) => a.code == areaValue || a.name == areaValue,
+            orElse: () => AreaItem(code: '', name: '', poBox: ''),
+          );
+          if (foundArea.code.isNotEmpty) {
+            _selectedAreaCode = foundArea.code;
+            _selectedAreaName = foundArea.name;
+            // load subareas
+            try {
+              final res = await PainterService.getSubAreasListByArea(
+                _selectedAreaCode!,
+              );
+              _hasSubArea = res['hasSubArea'] == true;
+              _subAreasList = (res['data'] as List<SubAreaItem>?) ?? [];
+              if (_hasSubArea) {
+                // try to match sub-area by name/code if returned in details.reference or similar
+                // PainterDetails currently doesn't include subArea; skip unless found
+              } else {
+                // if no subareas, set poBox from area
+                _poBoxController.text = foundArea.poBox;
+              }
+            } catch (_) {
+              _hasSubArea = false;
+              _subAreasList = [];
+            }
+          }
+        }
+      }
+
+      setState(() => _isLoading = false);
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -584,10 +676,14 @@ class _PainterUpdateScreenState extends State<PainterUpdateScreen>
       lastName: _lastNameController.text.trim(),
       mobileNumber: PainterService.formatMobileNumber(_mobileController.text),
       address: _addressController.text.trim(),
-      area: '',
+      emirateCode: _selectedEmirateCode,
       emirates: _selectedEmirate ?? '',
+      areaCode: _selectedAreaCode,
+      areaName: _selectedAreaName,
+      subAreaCode: _selectedSubAreaCode,
+      subAreaName: _selectedSubAreaName,
+      poBox: _poBoxController.text.trim(),
       reference: '', // Can be added to UI if needed
-      password: '', // Not updating password
       emiratesIdNumber: _emiratesIdController.text.trim(),
       idName: _nameOfHolderController.text.trim(),
       dateOfBirth: _dobController.text.trim(),
@@ -602,6 +698,18 @@ class _PainterUpdateScreenState extends State<PainterUpdateScreen>
       branchName: _branchNameController.text.trim(),
       bankAddress: _bankAddressController.text.trim(),
     );
+
+    // Ensure we have inflCode to call update endpoint
+    final inflCode = widget.userProfile?.inflCode;
+    if (inflCode == null || inflCode.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Unable to determine influencer code for update'),
+        ),
+      );
+      setState(() => _isSubmitting = false);
+      return;
+    }
 
     // Show update progress
     final loading = SnackBar(
@@ -618,10 +726,30 @@ class _PainterUpdateScreenState extends State<PainterUpdateScreen>
     messenger.showSnackBar(loading);
 
     try {
-      final resp = await PainterService.updatePainter(req);
+      final resp = await PainterService.updatePainter(inflCode, req);
       messenger.hideCurrentSnackBar();
 
       if (resp.success) {
+        // Update AuthManager with new user name
+        final currentUser = AuthManager.currentUser;
+        if (currentUser != null) {
+          final fullName = '${req.firstName} ${req.middleName} ${req.lastName}'
+              .trim()
+              .replaceAll(RegExp(r'\s+'), ' ');
+          final updatedUser = UserData(
+            emplName: fullName,
+            areaCode: (req.emirates != null && req.emirates!.isNotEmpty)
+                ? req.emirates!
+                : currentUser.areaCode,
+            deptCode: currentUser.deptCode,
+            roles: currentUser.roles,
+            pages: currentUser.pages,
+            userID: currentUser.userID,
+            appRegId: currentUser.appRegId,
+          );
+          AuthManager.setUser(updatedUser);
+        }
+
         messenger.showSnackBar(
           SnackBar(
             content: Row(
@@ -787,21 +915,125 @@ class _PainterUpdateScreenState extends State<PainterUpdateScreen>
         ModernDropdown(
           label: 'Emirates',
           icon: Icons.public_outlined,
-          items: const [
-            'Dubai',
-            'Abu Dhabi',
-            'Sharjah',
-            'Ajman',
-            'Umm Al Quwain',
-            'Ras Al Khaimah',
-            'Fujairah',
-          ],
+          items: _emiratesList.map((e) => e.name).toList(),
           value: _selectedEmirate,
-          onChanged: (String? value) {
+          isRequired: true,
+          onChanged: (String? value) async {
             setState(() {
               _selectedEmirate = value;
+              _selectedEmirateCode = _emiratesList
+                  .firstWhere(
+                    (e) => e.name == value,
+                    orElse: () => EmirateItem(id: '', name: ''),
+                  )
+                  .id;
+
+              // clear area/subarea selections
+              _areasList = [];
+              _subAreasList = [];
+              _selectedAreaCode = null;
+              _selectedAreaName = null;
+              _selectedSubAreaCode = null;
+              _selectedSubAreaName = null;
+              _hasSubArea = false;
+              _poBoxController.text = '';
             });
+
+            if (_selectedEmirateCode != null &&
+                _selectedEmirateCode!.isNotEmpty) {
+              try {
+                final areas = await PainterService.getAreasListByEmirate(
+                  _selectedEmirateCode!,
+                );
+                setState(() {
+                  _areasList = areas;
+                });
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed loading areas: ${e.toString()}'),
+                  ),
+                );
+              }
+            }
           },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        // Area dropdown
+        ModernDropdown(
+          label: 'Area',
+          icon: Icons.location_city_outlined,
+          items: _areasList.map((a) => a.name).toList(),
+          value: _selectedAreaName,
+          isRequired: true,
+          onChanged: (String? value) async {
+            setState(() {
+              _selectedAreaName = value;
+              final found = _areasList.firstWhere(
+                (a) => a.name == value,
+                orElse: () => AreaItem(code: '', name: '', poBox: ''),
+              );
+              _selectedAreaCode = found.code;
+              _selectedSubAreaCode = null;
+              _selectedSubAreaName = null;
+              _subAreasList = [];
+              _hasSubArea = false;
+              _poBoxController.text = '';
+            });
+
+            if (_selectedAreaCode != null && _selectedAreaCode!.isNotEmpty) {
+              try {
+                final res = await PainterService.getSubAreasListByArea(
+                  _selectedAreaCode!,
+                );
+                setState(() {
+                  _hasSubArea = res['hasSubArea'] == true;
+                  _subAreasList = (res['data'] as List<SubAreaItem>?) ?? [];
+                  if (!_hasSubArea) {
+                    final area = _areasList.firstWhere(
+                      (a) => a.code == _selectedAreaCode,
+                      orElse: () => AreaItem(code: '', name: '', poBox: ''),
+                    );
+                    _poBoxController.text = area.poBox;
+                  }
+                });
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Failed loading sub-areas: ${e.toString()}'),
+                  ),
+                );
+              }
+            }
+          },
+        ),
+        const ResponsiveSpacing(mobile: 12),
+        if (_hasSubArea) ...[
+          ModernDropdown(
+            label: 'Sub-area',
+            icon: Icons.place_outlined,
+            items: _subAreasList.map((s) => s.name).toList(),
+            value: _selectedSubAreaName,
+            isRequired: true,
+            onChanged: (String? value) {
+              setState(() {
+                _selectedSubAreaName = value;
+                final found = _subAreasList.firstWhere(
+                  (s) => s.name == value,
+                  orElse: () => SubAreaItem(code: '', name: '', poBox: ''),
+                );
+                _selectedSubAreaCode = found.code;
+                _poBoxController.text = found.poBox;
+              });
+            },
+          ),
+          const ResponsiveSpacing(mobile: 12),
+        ],
+        ResponsiveTextField(
+          label: 'Place Code (PoBox)',
+          icon: Icons.local_post_office_outlined,
+          controller: _poBoxController,
+          isRequired: true,
         ),
       ],
     );

@@ -1,0 +1,33 @@
+{
+  "nodes": [
+    {"id": "camera_scanner_screen_camerascannerscreen", "label": "Camera Scanner UI", "file_type": "code", "source_file": "lib/shared/presentation/pages/camera_scanner_screen.dart"},
+    {"id": "file_manager_screen_filemanagerscreen", "label": "File Manager UI", "file_type": "code", "source_file": "lib/shared/presentation/pages/file_manager_screen.dart"},
+    {"id": "qr_input_screen_qrinputscreen", "label": "QR/Manual Input UI", "file_type": "code", "source_file": "lib/shared/presentation/pages/qr_input_screen.dart"},
+    {"id": "file_upload_widget_fileuploadwidget", "label": "File Upload Widget", "file_type": "code", "source_file": "lib/shared/widgets/file_upload_widget.dart"},
+    {"id": "kyc_status_widget_kycstatuswidget", "label": "KYC Status Tracking Widget", "file_type": "code", "source_file": "lib/shared/widgets/kyc_status_widget.dart"},
+    {"id": "section_card_sectioncard", "label": "Standard Section Card", "file_type": "code", "source_file": "lib/shared/widgets/section_card.dart"},
+    {"id": "user_search_widget_usersearchwidget", "label": "Interactive User Search", "file_type": "code", "source_file": "lib/shared/widgets/user_search_widget.dart"},
+    {"id": "modern_dropdown_moderndropdown", "label": "Modern Dropdown UI", "file_type": "code", "source_file": "lib/shared/widgets/modern_dropdown.dart"},
+    {"id": "readme_ocr_doc", "label": "OCR Implementation Guide", "file_type": "document", "source_file": "lib/core/services/README_OCR.md"}
+  ],
+  "edges": [
+    {"source": "section_card_sectioncard", "target": "dsr_entry_screen_dsrentryscreen", "relation": "rationale_for", "confidence": "INFERRED", "confidence_score": 0.9, "source_file": "lib/shared/widgets/section_card.dart"},
+    {"source": "user_search_widget_usersearchwidget", "target": "admin_user_service_adminuserservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/shared/widgets/user_search_widget.dart"},
+    {"source": "file_upload_widget_fileuploadwidget", "target": "image_upload_service_imageuploadservice", "relation": "calls", "confidence": "INFERRED", "confidence_score": 0.95, "source_file": "lib/shared/widgets/file_upload_widget.dart"},
+    {"source": "readme_ocr_doc", "target": "hybrid_ocr_service_hybridocrservice", "relation": "rationale_for", "confidence": "INFERRED", "confidence_score": 1.0, "source_file": "lib/core/services/README_OCR.md"},
+    {"source": "camera_scanner_screen_camerascannerscreen", "target": "emirates_id_ocr_service_emiratesidocrservice", "relation": "calls", "confidence": "INFERRED", "confidence_score": 0.85, "source_file": "lib/shared/presentation/pages/camera_scanner_screen.dart"}
+  ],
+  "hyperedges": [
+    {
+      "id": "shared_ui_components",
+      "label": "Shared UI System",
+      "nodes": ["section_card_sectioncard", "modern_dropdown_moderndropdown", "file_upload_widget_fileuploadwidget"],
+      "relation": "participate_in",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "lib/shared/widgets"
+    }
+  ],
+  "input_tokens": 10000,
+  "output_tokens": 1800
+}

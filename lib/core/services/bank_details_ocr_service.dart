@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:google_ml_kit/google_ml_kit.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
 
@@ -112,7 +112,7 @@ class BankDetailsOcrService {
   Future<String> recognizeText(File imageFile) async {
     final processedImage = await preprocessImage(imageFile);
     final inputImage = InputImage.fromFilePath(processedImage.path);
-    final textRecognizer = GoogleMlKit.vision.textRecognizer();
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
     try {
       final recognisedText = await textRecognizer.processImage(inputImage);
@@ -128,7 +128,7 @@ class BankDetailsOcrService {
 
       return buffer.toString();
     } finally {
-      await textRecognizer.close();
+      textRecognizer.close();
     }
   }
 
@@ -344,7 +344,7 @@ class BankDetailsOcrService {
   Future<Map<String, String?>> recognizeAndFillFields(File imageFile) async {
     final processedImage = await preprocessImage(imageFile);
     final inputImage = InputImage.fromFilePath(processedImage.path);
-    final textRecognizer = GoogleMlKit.vision.textRecognizer();
+    final textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
     try {
       final recognisedText = await textRecognizer.processImage(inputImage);
@@ -388,7 +388,7 @@ class BankDetailsOcrService {
 
       return result;
     } finally {
-      await textRecognizer.close();
+      textRecognizer.close();
     }
   }
 

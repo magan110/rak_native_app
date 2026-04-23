@@ -1,0 +1,39 @@
+{
+  "nodes": [
+    {"id": "counter_mapping_screen_countermappingscreen", "label": "Counter Mapping Screen", "file_type": "code", "source_file": "lib/features/sales_monitoring/presentation/screens/counter_mapping_screen.dart"},
+    {"id": "sales_monitoring_home_screen_salesmonitoringhomescreen", "label": "Sales Monitoring Home", "file_type": "code", "source_file": "lib/features/sales_monitoring/presentation/screens/sales_monitoring_home_screen.dart"},
+    {"id": "sample_distribution_entry_screen_sampledistributionentryscreen", "label": "Sample Distribution Entry", "file_type": "code", "source_file": "lib/features/sample_distribution/sample_distribution_entry_screen.dart"},
+    {"id": "sample_execution_entry_screen_sampleexecutionentryscreen", "label": "Sample Execution Entry", "file_type": "code", "source_file": "lib/features/sample_execution/sample_execution_entry_screen.dart"},
+    {"id": "auth_remote_datasource_authremotedatasource", "label": "Auth Remote DataSource", "file_type": "code", "source_file": "lib/features/screens/data/datasources/auth_remote_datasource.dart"},
+    {"id": "user_model_usermodel", "label": "User Data Model", "file_type": "code", "source_file": "lib/features/screens/data/models/user_model.dart"},
+    {"id": "auth_repository_impl_authrepositoryimpl", "label": "Auth Repository Implementation", "file_type": "code", "source_file": "lib/features/screens/data/repositories/auth_repository_impl.dart"},
+    {"id": "user_entity_user", "label": "User Domain Entity", "file_type": "code", "source_file": "lib/features/screens/domain/entities/user.dart"},
+    {"id": "login_usecase_loginusecase", "label": "Login Use Case", "file_type": "code", "source_file": "lib/features/screens/domain/usecases/login_usecase.dart"},
+    {"id": "admin_user_edit_screen_adminusereditscreen", "label": "Admin User Edit Screen", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/admin_screens/admin_user_edit_screen.dart"},
+    {"id": "login_screen_with_otp_loginscreenwithotp", "label": "OTP Login Screen", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/login_screens/login_screen_with_otp.dart"},
+    {"id": "home_screen_homescreen", "label": "Dashboard Home Screen", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/main_screens/home_screen.dart"},
+    {"id": "home_quick_actions_homequickactions", "label": "Home Quick Actions Grid", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/main_screens/widgets/home_quick_actions.dart"},
+    {"id": "home_business_metrics_homebusinessmetrics", "label": "Home Business Metrics", "file_type": "code", "source_file": "lib/features/screens/presentation/pages/main_screens/widgets/home_business_metrics.dart"}
+  ],
+  "edges": [
+    {"source": "home_screen_homescreen", "target": "home_quick_actions_homequickactions", "relation": "references", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/screens/presentation/pages/main_screens/home_screen.dart"},
+    {"source": "home_quick_actions_homequickactions", "target": "dsr_entry_screen_dsrentryscreen", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/screens/presentation/pages/main_screens/widgets/home_quick_actions.dart"},
+    {"source": "login_usecase_loginusecase", "target": "auth_repository_impl_authrepositoryimpl", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/screens/domain/usecases/login_usecase.dart"},
+    {"source": "auth_repository_impl_authrepositoryimpl", "target": "auth_remote_datasource_authremotedatasource", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/screens/data/repositories/auth_repository_impl.dart"},
+    {"source": "sample_distribution_entry_screen_sampledistributionentryscreen", "target": "sample_distribution_service_sampledistributionservice", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/sample_distribution/sample_distribution_entry_screen.dart"},
+    {"source": "home_quick_actions_homequickactions", "target": "activity_entry_screen_activityentryscreen", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "lib/features/screens/presentation/pages/main_screens/widgets/home_quick_actions.dart"}
+  ],
+  "hyperedges": [
+    {
+      "id": "clean_architecture_auth",
+      "label": "Auth Module (Clean Arch)",
+      "nodes": ["auth_remote_datasource_authremotedatasource", "auth_repository_impl_authrepositoryimpl", "login_usecase_loginusecase"],
+      "relation": "implement",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "lib/features/screens"
+    }
+  ],
+  "input_tokens": 16000,
+  "output_tokens": 2800
+}
